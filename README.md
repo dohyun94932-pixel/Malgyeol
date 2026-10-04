@@ -22,7 +22,7 @@ Vercel: https://malgyeol-neon.vercel.app/
 - 구조화 확인
 - 메시지 결과
 - 내 말투 설정
-- 반응형 레이아웃 (실기기 점검 전)
+- 반응형 레이아웃 (iPhone Safari, 카카오톡 인앱 브라우저에서 확인 완료)
 
 ### 임시 구현
 - 샘플 데이터는 더미 데이터
@@ -46,7 +46,7 @@ Vercel: https://malgyeol-neon.vercel.app/
 2. design.md 반영
 3. 실제 AI 연결 (API 키는 서버리스 함수 등으로 보호)
 4. 전체 기능 검증
-5. 모바일 최종 점검
+5. 모바일 추가 점검 (Android Chrome 등 다른 기기)
 6. 발표용 테스트
 
 ### 개발 방식
