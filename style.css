@@ -180,3 +180,93 @@ textarea:disabled {
   color: #b45309;
   font-size: 13px;
 }
+
+/* 화면 2 · 구조화 확인 */
+.summary {
+  margin: -12px 0 24px;
+  color: #666;
+}
+
+.block {
+  margin-bottom: 28px;
+}
+
+.block-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.block-desc {
+  margin: 0 0 12px;
+  color: #666;
+  font-size: 14px;
+}
+
+.required {
+  color: #d92d20;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  background: #fff;
+  padding: 8px 18px;
+}
+
+.chip.selected {
+  border-color: #2f5bea;
+  background: #2f5bea;
+  color: #fff;
+}
+
+.field {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.field.missing {
+  background: #fff8db;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.field-hint {
+  margin: 6px 0 0;
+  color: #92400e;
+  font-size: 14px;
+}
+
+.field-hint:empty {
+  display: none;
+}
+
+.check-label {
+  display: block;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.actions .primary {
+  flex: 1;
+  width: auto;
+}
+
+.debug {
+  border-radius: 8px;
+  background: #f0f0f0;
+  padding: 12px;
+  white-space: pre-wrap;
+}

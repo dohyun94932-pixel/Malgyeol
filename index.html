@@ -30,18 +30,34 @@
     <button type="button" class="primary" id="home-submit" disabled>정리하기</button>
   </main>
 
-  <!-- 화면 2 · 구조화 확인 (다음 단계에서 구현) -->
+  <!-- 화면 2 · 구조화 확인 -->
   <main class="screen" id="screen-structure" hidden>
     <h1>구조화 확인</h1>
-    <p class="placeholder">준비 중인 화면입니다.</p>
-    <p class="placeholder" id="structure-debug"></p>
-    <button type="button" class="secondary" data-go="home">← 홈으로</button>
+    <p class="summary"><strong id="structure-card"></strong> · <span id="structure-input"></span></p>
+
+    <section class="block">
+      <h2 class="block-title">받는 사람 <span class="required">*</span></h2>
+      <div class="chips" id="recipient-list"></div>
+    </section>
+
+    <section class="block">
+      <h2 class="block-title">내용 확인</h2>
+      <p class="block-desc"><span class="required">*</span> 표시는 꼭 채워야 해요. 노란 칸은 아직 비어 있어요.</p>
+      <div id="field-list"></div>
+      <p class="security-note">클라이언트명·금액 등 기밀 정보는 'A사', 'X원'처럼 바꿔 입력하세요.</p>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="secondary" data-go="home">← 홈으로</button>
+      <button type="button" class="primary" id="make-message" disabled>메시지 만들기</button>
+    </div>
   </main>
 
   <!-- 화면 3 · 결과 (다음 단계에서 구현) -->
   <main class="screen" id="screen-result" hidden>
     <h1>결과</h1>
-    <p class="placeholder">준비 중인 화면입니다.</p>
+    <p class="placeholder">준비 중인 화면입니다. 확정된 내용은 아래와 같아요.</p>
+    <pre class="debug" id="result-debug"></pre>
     <button type="button" class="secondary" data-go="home">← 홈으로</button>
   </main>
 
@@ -52,6 +68,7 @@
     <button type="button" class="secondary" data-go="home">← 홈으로</button>
   </main>
 
+  <script src="ai.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
