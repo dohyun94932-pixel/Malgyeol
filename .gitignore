@@ -8,3 +8,10 @@ __pycache__/
 venv/
 dist/
 build/
+
+# 비밀 정보·로컬 설정 (올리지 않음)
+.vercel/
+*.pem
+*.key
+.claude/settings.local.json
+Thumbs.db
