@@ -644,6 +644,7 @@ function initBanner() {
 document.addEventListener("DOMContentLoaded", () => {
   renderCards();
   initBanner();
+  if (typeof initReviewBar === "function") initReviewBar(); // review.js가 있을 때만
 
   $("home-input").addEventListener("input", updateSubmitButton);
   $("home-submit").addEventListener("click", submitHome);
