@@ -53,19 +53,67 @@
     </div>
   </main>
 
-  <!-- 화면 3 · 결과 (다음 단계에서 구현) -->
+  <!-- 화면 3 · 결과 -->
   <main class="screen" id="screen-result" hidden>
     <h1>결과</h1>
-    <p class="placeholder">준비 중인 화면입니다. 확정된 내용은 아래와 같아요.</p>
-    <pre class="debug" id="result-debug"></pre>
-    <button type="button" class="secondary" data-go="home">← 홈으로</button>
+    <p class="summary"><strong id="result-card"></strong> · 받는 사람 <span id="result-recipient"></span></p>
+
+    <div class="tabs" id="variant-tabs" role="tablist" aria-label="메시지 종류"></div>
+    <textarea id="message-text" rows="9" aria-label="메시지 본문"></textarea>
+
+    <section class="block">
+      <h2 class="block-title">의도 체크</h2>
+      <p class="block-desc">확인한 내용이 메시지에 남아 있는지 살펴봤어요. 본문을 고치면 다시 확인해요.</p>
+      <ul class="check-list" id="intent-list"></ul>
+    </section>
+
+    <section class="block">
+      <h2 class="block-title">수정 이유</h2>
+      <ul class="reason-list" id="reason-list"></ul>
+    </section>
+
+    <div class="result-actions">
+      <button type="button" class="primary" id="copy-message">복사</button>
+      <button type="button" class="secondary" id="regenerate">다시 만들기</button>
+      <button type="button" class="secondary" id="save-preferred">이 표현을 내 말투에 반영</button>
+      <button type="button" class="secondary" data-go="structure">구조 수정</button>
+    </div>
+    <p class="toast" id="result-toast" aria-live="polite"></p>
   </main>
 
-  <!-- 화면 4 · 내 말투 (다음 단계에서 구현) -->
+  <!-- 화면 4 · 내 말투 -->
   <main class="screen" id="screen-profile" hidden>
     <h1>내 말투</h1>
-    <p class="placeholder">준비 중인 화면입니다.</p>
-    <button type="button" class="secondary" data-go="home">← 홈으로</button>
+
+    <section class="block" id="onboarding" hidden>
+      <h2 class="block-title">30초 말투 설정</h2>
+      <p class="block-desc">같은 뜻의 두 문장 중 더 나다운 쪽을 골라 주세요. 건너뛰어도 괜찮아요.</p>
+      <div id="onboarding-questions"></div>
+      <div class="actions">
+        <button type="button" class="secondary" id="onboarding-skip">건너뛰기</button>
+        <button type="button" class="primary" id="onboarding-apply" disabled>내 말투에 적용</button>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2 class="block-title">말투 설정</h2>
+      <p class="block-desc">바꾸면 바로 저장돼요. 건너뛰면 보통 · 부드럽게 · 합니다체로 만들어요.</p>
+      <div id="profile-settings"></div>
+      <label class="field-label" for="profile-avoid">피하고 싶은 표현 (선택)</label>
+      <input type="text" id="profile-avoid" placeholder="예: 번거로우시겠지만, 송구하지만">
+    </section>
+
+    <section class="block">
+      <h2 class="block-title">마음에 든 문장</h2>
+      <p class="block-desc">결과 화면에서 반영한 문장이에요. 최근 5개까지 저장돼요.</p>
+      <ul class="preferred-list" id="preferred-list"></ul>
+    </section>
+
+    <p class="toast" id="profile-toast" aria-live="polite"></p>
+    <div class="actions">
+      <button type="button" class="secondary" data-go="home">← 홈으로</button>
+      <button type="button" class="secondary" id="onboarding-reopen">질문으로 다시 설정</button>
+    </div>
   </main>
 
   <script src="ai.js"></script>
