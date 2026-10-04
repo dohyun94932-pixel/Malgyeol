@@ -88,7 +88,8 @@ function selectCard(cardId) {
 
   const input = $("home-input");
   input.disabled = false;
-  input.placeholder = `${UI_TEXT.examplePrefix}${card.placeholder}`;
+  const examples = card.examples && card.examples.length ? card.examples : [card.placeholder];
+  input.placeholder = `${UI_TEXT.examplePrefix}${examples[Math.floor(Math.random() * examples.length)]}`;
   input.focus();
   updateSubmitButton();
 }
@@ -563,24 +564,35 @@ function validateContent() {
     const keys = card.fields.map((f) => f.key);
     if (new Set(keys).size !== keys.length) problems.push(`${card.id}: 칸 key가 겹쳐요.`);
 
-    (MOCK_PRESETS[card.id] || []).forEach((preset) => {
+    const presets = MOCK_PRESETS[card.id] || [];
+    presets.forEach((preset) => {
+      if (!Array.isArray(preset.keywords) || preset.keywords.length === 0) {
+        problems.push(`샘플 응답(${card.id}): keywords가 비어 있어요.`);
+      }
       Object.keys(preset.fields).forEach((key) => {
         if (!keys.includes(key)) problems.push(`샘플 응답(${card.id}): "${key}" 칸이 CARDS에 없어요.`);
       });
     });
 
-    const config = MESSAGE_PARTS[card.id];
-    if (!config) {
-      problems.push(`MESSAGE_PARTS에 "${card.id}"가 없어요.`);
+    // 예시 문장을 넣으면 샘플 응답이 걸리는지 (안 걸리면 입력 전체가 첫 칸에만 들어간다)
+    (card.examples || []).forEach((example) => {
+      if (!presets.some((p) => (p.keywords || []).some((word) => example.includes(word)))) {
+        problems.push(`예시 문장(${card.id}): "${example}"에 맞는 샘플 응답 keywords가 없어요.`);
+      }
+    });
+
+    const flow = MESSAGE_FLOW[card.id];
+    if (!flow) {
+      problems.push(`MESSAGE_FLOW에 "${card.id}"가 없어요.`);
       return;
     }
-    const used = [...config.parts.map((part) => part[0]), config.tail && config.tail.key].filter(Boolean);
+    const used = [...flow.steps.map((step) => step.key), flow.tail].filter(Boolean);
     used.forEach((key) => {
-      if (!keys.includes(key)) problems.push(`MESSAGE_PARTS(${card.id}): "${key}" 칸이 CARDS에 없어요.`);
+      if (!keys.includes(key)) problems.push(`MESSAGE_FLOW(${card.id}): "${key}" 칸이 CARDS에 없어요.`);
     });
     card.fields.forEach((field) => {
       if (field.type !== "checkbox" && !used.includes(field.key)) {
-        problems.push(`MESSAGE_PARTS(${card.id}): "${field.key}" 칸이 빠져 있어서 메시지에 안 들어가요.`);
+        problems.push(`MESSAGE_FLOW(${card.id}): "${field.key}" 칸이 빠져 있어서 메시지에 안 들어가요.`);
       }
     });
     if (!MESSAGE_REASONS[card.id]) problems.push(`MESSAGE_REASONS에 "${card.id}"가 없어요.`);
