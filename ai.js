@@ -1,4 +1,5 @@
 // 가짜 AI (목업). 나중에 실제 AI 호출로 바꿀 때 이 파일의 함수만 교체한다.
+// 이 파일에는 로직만 둔다. 샘플 응답과 문구는 모두 content.js의 임시 데이터를 쓴다.
 // 입출력 형식은 기획서 5-5와 동일하다.
 
 const MOCK_DELAY_MS = 500;
@@ -100,6 +101,6 @@ async function generateMessages({ card, fields, recipient, profile }) {
       { type: "concise", text: join(concise), evidence },
       { type: "soft", text: join(soft), evidence },
     ],
-    reasons: [...MESSAGE_REASONS[card.id], `${recipient}에게 보내는 글이라 호칭과 말투를 거기에 맞췄어요.`],
+    reasons: [...MESSAGE_REASONS[card.id], MESSAGE_RECIPIENT_REASON(recipient)],
   };
 }

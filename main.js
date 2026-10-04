@@ -88,7 +88,7 @@ function selectCard(cardId) {
 
   const input = $("home-input");
   input.disabled = false;
-  input.placeholder = `예: ${card.placeholder}`;
+  input.placeholder = `${UI_TEXT.examplePrefix}${card.placeholder}`;
   input.focus();
   updateSubmitButton();
 }
@@ -103,8 +103,9 @@ async function submitHome() {
 
   const card = currentCard();
   const button = $("home-submit");
+  const label = button.textContent;
   button.disabled = true;
-  button.textContent = "정리하는 중…";
+  button.textContent = UI_TEXT.loadingStructure;
 
   try {
     const result = await structurize(card, state.input);
@@ -114,9 +115,9 @@ async function submitHome() {
     renderStructure();
     showScreen("structure");
   } catch (error) {
-    alert("정리하는 중 문제가 생겼어요. 다시 시도해 주세요.");
+    alert(UI_TEXT.errorStructure);
   } finally {
-    button.textContent = "정리하기";
+    button.textContent = label;
     updateSubmitButton();
   }
 }
@@ -250,16 +251,17 @@ async function buildResult() {
 
 async function makeMessage() {
   const button = $("make-message");
+  const label = button.textContent;
   button.disabled = true;
-  button.textContent = "만드는 중…";
+  button.textContent = UI_TEXT.loadingMessage;
 
   try {
     await buildResult();
     showScreen("result");
   } catch (error) {
-    alert("메시지를 만드는 중 문제가 생겼어요. 다시 시도해 주세요.");
+    alert(UI_TEXT.errorMessage);
   } finally {
-    button.textContent = "메시지 만들기";
+    button.textContent = label;
     updateMakeButton();
   }
 }
@@ -323,7 +325,7 @@ function renderIntentCheck() {
 
     const item = document.createElement("li");
     item.className = included ? "check-ok" : "check-warn";
-    item.textContent = `${included ? "✓" : "⚠"} ${field.label} — ${included ? "포함됨" : "누락 가능"}`;
+    item.textContent = `${included ? "✓" : "⚠"} ${field.label} — ${included ? UI_TEXT.intentIncluded : UI_TEXT.intentMissing}`;
     list.appendChild(item);
   });
 }
@@ -342,27 +344,28 @@ async function copyMessage() {
   const textarea = $("message-text");
   try {
     await navigator.clipboard.writeText(textarea.value);
-    showToast("복사했어요.");
+    showToast(UI_TEXT.copied);
   } catch (error) {
     textarea.select();
     const copied = document.execCommand("copy");
-    showToast(copied ? "복사했어요." : "복사하지 못했어요. 직접 선택해서 복사해 주세요.");
+    showToast(copied ? UI_TEXT.copied : UI_TEXT.copyFailed);
   }
 }
 
 async function regenerate() {
   const button = $("regenerate");
+  const label = button.textContent;
   button.disabled = true;
-  button.textContent = "만드는 중…";
+  button.textContent = UI_TEXT.loadingMessage;
 
   try {
     await buildResult();
-    showToast("다시 만들었어요.");
+    showToast(UI_TEXT.regenerated);
   } catch (error) {
-    showToast("다시 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+    showToast(UI_TEXT.errorRegenerate);
   } finally {
     button.disabled = false;
-    button.textContent = "다시 만들기";
+    button.textContent = label;
   }
 }
 
@@ -374,9 +377,9 @@ function savePreferred() {
   const list = [text, ...loadPreferred().filter((saved) => saved !== text)].slice(0, MAX_PREFERRED);
   try {
     localStorage.setItem(STORAGE_KEYS.preferred, JSON.stringify(list));
-    showToast("내 말투에 반영했어요.");
+    showToast(UI_TEXT.preferredSaved);
   } catch (error) {
-    showToast("저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요.");
+    showToast(UI_TEXT.errorSave);
   }
 }
 
@@ -404,7 +407,7 @@ function renderOnboarding() {
 
     const title = document.createElement("h3");
     title.className = "question-title";
-    title.textContent = `${question.title} · 어느 쪽이 나답나요?`;
+    title.textContent = `${question.title} · ${UI_TEXT.onboardingAsk}`;
     block.appendChild(title);
 
     question.options.forEach((option, index) => {
@@ -435,12 +438,12 @@ function renderOnboarding() {
 function applyOnboarding() {
   const saved = saveProfile({ ...loadProfile(), ...onboardingAnswers });
   if (!saved) {
-    showToast("저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요.", "profile-toast");
+    showToast(UI_TEXT.errorSave, "profile-toast");
     return;
   }
   ONBOARDING.forEach((q) => delete onboardingAnswers[q.key]);
   renderProfile();
-  showToast("내 말투를 설정했어요.", "profile-toast");
+  showToast(UI_TEXT.onboardingApplied, "profile-toast");
 }
 
 function skipOnboarding() {
@@ -483,9 +486,9 @@ function renderSettings() {
       button.addEventListener("click", () => {
         if (saveProfile({ ...loadProfile(), [option.key]: value })) {
           renderSettings();
-          showToast("저장했어요.", "profile-toast");
+          showToast(UI_TEXT.settingSaved, "profile-toast");
         } else {
-          showToast("저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요.", "profile-toast");
+          showToast(UI_TEXT.errorSave, "profile-toast");
         }
       });
       chips.appendChild(button);
@@ -505,7 +508,7 @@ function renderPreferred() {
   if (preferred.length === 0) {
     const empty = document.createElement("li");
     empty.className = "empty";
-    empty.textContent = "아직 반영한 문장이 없어요. 결과 화면에서 '이 표현을 내 말투에 반영'을 눌러 보세요.";
+    empty.textContent = UI_TEXT.preferredEmpty;
     list.appendChild(empty);
     return;
   }
@@ -520,13 +523,13 @@ function renderPreferred() {
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "secondary small";
-    remove.textContent = "삭제";
+    remove.textContent = UI_TEXT.deleteButton;
     remove.addEventListener("click", () => {
       const next = loadPreferred().filter((_, i) => i !== index);
       try {
         localStorage.setItem(STORAGE_KEYS.preferred, JSON.stringify(next));
       } catch (error) {
-        showToast("삭제하지 못했어요.", "profile-toast");
+        showToast(UI_TEXT.errorDelete, "profile-toast");
         return;
       }
       renderPreferred();
