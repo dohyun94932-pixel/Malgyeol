@@ -1,50 +1,3 @@
-// 상황 카드 정의 (기획서 5-1)
-const CARDS = [
-  {
-    id: "question",
-    title: "질문 준비실",
-    desc: "막혀서 선배에게 물어봐야 할 때",
-    placeholder: "재고평가충당금 계산이 안 맞는데 선배한테 물어보고 싶어요",
-    fields: [
-      { key: "상황", label: "상황", required: true, question: "어떤 상황인가요?" },
-      { key: "해본것", label: "해본 것", required: true, question: "어떤 걸 먼저 확인해 보셨나요?" },
-      { key: "막힌지점", label: "막힌 지점", required: true, question: "어디서 막혔나요?" },
-      { key: "선택지", label: "선택지", required: false },
-      { key: "내판단", label: "내 판단", required: false },
-      { key: "묻고싶은것", label: "묻고 싶은 것", required: true, question: "선배에게 정확히 무엇을 묻고 싶으신가요?" },
-    ],
-  },
-  {
-    id: "request",
-    title: "부탁 한 장",
-    desc: "자료 요청이나 일정 조정을 부탁할 때",
-    placeholder: "오늘까지 끝내기 어려워서 내일 오전 10시로 미뤄도 될지 여쭤보고 싶어요",
-    fields: [
-      { key: "요청내용", label: "요청 내용", required: true, question: "무엇을 부탁하고 싶으신가요?" },
-      { key: "기한", label: "기한", required: true, question: "언제까지 필요한가요?" },
-      { key: "필요한결과", label: "필요한 결과(형태)", required: false },
-      { key: "이유배경", label: "이유·배경", required: false },
-      { key: "대안조건", label: "대안·조건", required: false },
-      { key: "동의필요", label: "상대 동의 필요 여부", required: false, type: "checkbox", checkLabel: "상대 동의가 필요해요" },
-    ],
-  },
-  {
-    id: "report",
-    title: "한 줄 상황보고",
-    desc: "진행 상황을 짧게 알려야 할 때",
-    placeholder: "매출채권 조회서 발송은 끝났고 회신 대사는 진행 중이에요",
-    fields: [
-      { key: "완료한것", label: "완료한 것", required: true, question: "어디까지 끝내셨나요?" },
-      { key: "진행중인것", label: "진행 중인 것", required: false },
-      { key: "막힌점", label: "막힌 점", required: false },
-      { key: "도움요청", label: "도움 요청", required: false },
-      { key: "다음예정", label: "다음 예정·완료 예상 시점", required: false },
-    ],
-  },
-];
-
-const RECIPIENTS = ["선배", "인차지", "동기"];
-
 const STORAGE_KEYS = {
   profile: "malgyeol.profile",
   preferred: "malgyeol.preferred",
@@ -52,49 +5,6 @@ const STORAGE_KEYS = {
 };
 
 const MAX_PREFERRED = 5;
-
-// 건너뛴 경우의 기본 말투 (기획서 5-4)
-const DEFAULT_PROFILE = { length: "보통", request: "부드럽게", ending: "합니다체", avoid: "" };
-
-// 말투 설정 선택지 (기획서 5-4)
-const PROFILE_OPTIONS = [
-  { key: "length", label: "문장 길이", values: ["짧게", "보통", "충분히 설명"] },
-  { key: "request", label: "요청 방식", values: ["직접적으로", "부드럽게", "매우 조심스럽게"] },
-  { key: "ending", label: "끝맺음", values: ["합니다체", "해요체"] },
-];
-
-// 온보딩: 같은 뜻의 두 문장 중 고르면 설정값으로 바로 바뀐다. (AI 없이 규칙으로 매핑)
-const ONBOARDING = [
-  {
-    key: "length",
-    title: "1. 문장 길이",
-    options: [
-      { text: "재고평가충당금 건으로 질문드립니다. 전기 산식은 확인했고, 당기 데이터에서 막혀 있습니다.", value: "짧게" },
-      {
-        text: "재고평가충당금 계산이 맞지 않아 여쭤봅니다. 전기 산식을 먼저 확인했고 당기 재고 데이터도 다시 봤는데 원인을 찾지 못했습니다. 두 가지 방식 중 A가 맞다고 생각합니다.",
-        value: "충분히 설명",
-      },
-    ],
-  },
-  {
-    key: "request",
-    title: "2. 요청 방식",
-    options: [
-      { text: "내일 오전 10시까지 확인 부탁드립니다.", value: "직접적으로" },
-      { text: "바쁘시겠지만 시간 되실 때 확인해 주시면 감사하겠습니다.", value: "부드럽게" },
-    ],
-  },
-  {
-    key: "ending",
-    title: "3. 끝맺음",
-    options: [
-      { text: "확인해 보았습니다. 내일까지 드리겠습니다.", value: "합니다체" },
-      { text: "확인해 봤어요. 내일까지 드릴게요.", value: "해요체" },
-    ],
-  },
-];
-
-const VARIANT_LABELS = { mine: "내 말투안", concise: "더 간결하게", soft: "더 부드럽게" };
 
 // 화면 사이에 넘겨줄 상태
 const state = {
@@ -639,9 +549,68 @@ function initBanner() {
   });
 }
 
+// ---------- content.js 검사 ----------
+// 콘텐츠를 고치다가 서로 연결된 이름이 어긋나면 콘솔에 알려 준다. (화면 동작에는 영향 없음)
+
+function validateContent() {
+  const problems = [];
+  const optionValues = Object.fromEntries(PROFILE_OPTIONS.map((o) => [o.key, o.values]));
+
+  CARDS.forEach((card) => {
+    const keys = card.fields.map((f) => f.key);
+    if (new Set(keys).size !== keys.length) problems.push(`${card.id}: 칸 key가 겹쳐요.`);
+
+    (MOCK_PRESETS[card.id] || []).forEach((preset) => {
+      Object.keys(preset.fields).forEach((key) => {
+        if (!keys.includes(key)) problems.push(`샘플 응답(${card.id}): "${key}" 칸이 CARDS에 없어요.`);
+      });
+    });
+
+    const config = MESSAGE_PARTS[card.id];
+    if (!config) {
+      problems.push(`MESSAGE_PARTS에 "${card.id}"가 없어요.`);
+      return;
+    }
+    const used = [...config.parts.map((part) => part[0]), config.tail && config.tail.key].filter(Boolean);
+    used.forEach((key) => {
+      if (!keys.includes(key)) problems.push(`MESSAGE_PARTS(${card.id}): "${key}" 칸이 CARDS에 없어요.`);
+    });
+    card.fields.forEach((field) => {
+      if (field.type !== "checkbox" && !used.includes(field.key)) {
+        problems.push(`MESSAGE_PARTS(${card.id}): "${field.key}" 칸이 빠져 있어서 메시지에 안 들어가요.`);
+      }
+    });
+    if (!MESSAGE_REASONS[card.id]) problems.push(`MESSAGE_REASONS에 "${card.id}"가 없어요.`);
+  });
+
+  ONBOARDING.forEach((question) => {
+    question.options.forEach((option) => {
+      if (!(optionValues[question.key] || []).includes(option.value)) {
+        problems.push(`ONBOARDING(${question.key}): value "${option.value}"가 PROFILE_OPTIONS에 없어요.`);
+      }
+    });
+  });
+
+  Object.entries(DEFAULT_PROFILE).forEach(([key, value]) => {
+    if (key !== "avoid" && !(optionValues[key] || []).includes(value)) {
+      problems.push(`DEFAULT_PROFILE: ${key} 값 "${value}"가 PROFILE_OPTIONS에 없어요.`);
+    }
+  });
+
+  (optionValues.request || []).forEach((value) => {
+    if (!MESSAGE_CLOSINGS[value]) problems.push(`MESSAGE_CLOSINGS에 "${value}"가 없어요.`);
+  });
+  RECIPIENTS.forEach((name) => {
+    if (!MESSAGE_GREETINGS[name]) problems.push(`MESSAGE_GREETINGS에 "${name}"가 없어요.`);
+  });
+
+  problems.forEach((message) => console.error(`[content.js] ${message}`));
+}
+
 // ---------- 시작 ----------
 
 document.addEventListener("DOMContentLoaded", () => {
+  validateContent();
   renderCards();
   initBanner();
   if (typeof initReviewBar === "function") initReviewBar(); // review.js가 있을 때만
