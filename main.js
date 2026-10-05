@@ -320,21 +320,28 @@ function updateMakeButton() {
   $("make-message").disabled = !(state.recipient && allFilled);
 }
 
-// 호출 2(메시지 생성)를 부르고 결과 상태를 채운다.
-async function buildResult() {
+// 호출 2(메시지 생성)를 부르고 결과 상태를 채운다. fresh: 저장된 결과를 쓰지 않고 새로 만든다 ([다시 만들기])
+async function buildResult(fresh = false) {
   const profile = loadProfile();
-  const result = await generateMessages({
-    card: currentCard(),
-    fields: state.fields,
-    recipient: currentPartner(),
-    profile,
-    preferred: profile.preferredExamples,
-  });
+  const result = await generateMessages(
+    {
+      card: currentCard(),
+      fields: state.fields,
+      recipient: currentPartner(),
+      profile,
+      preferred: profile.preferredExamples,
+    },
+    { fresh },
+  );
   state.variants = result.variants;
   state.reasons = result.reasons;
   state.activeVariant = 0;
   // 실제 AI가 실패해서 가짜 AI로 대체됐을 때만 결과 화면에 안내 한 줄 (?mock으로 일부러 쓸 때는 안 보임)
-  $("ai-fallback-notice").hidden = result.source !== "fallback";
+  $("ai-fallback-notice").hidden = !(result.source === "mock" && result.reason !== "forced");
+  // ?review일 때만 어디서 만들었는지 작은 글씨로 (예: "생성: Gemini", "생성: 가짜 AI · no_key")
+  const sourceLine = $("ai-source");
+  sourceLine.hidden = !new URLSearchParams(location.search).has("review");
+  sourceLine.textContent = `생성: ${aiSourceLabel(result)}`;
   renderResult();
 }
 
@@ -465,7 +472,7 @@ async function regenerate() {
   button.textContent = UI_TEXT.loadingMessage;
 
   try {
-    await buildResult();
+    await buildResult(true); // 다시 만들기는 항상 새로 부른다 (저장된 결과 안 씀)
     showToast(UI_TEXT.regenerated);
   } catch (error) {
     showToast(UI_TEXT.errorRegenerate);

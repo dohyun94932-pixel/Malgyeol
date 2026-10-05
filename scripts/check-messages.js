@@ -21,6 +21,15 @@ const GRAMMAR_PATTERNS = [
   { re: / {2,}/, desc: "공백 두 칸 이상" },
   { re: /\.\./, desc: "마침표 두 개" },
   { re: /[?!]\./, desc: '물음표·느낌표 뒤에 마침표 (예: "?.")' },
+  // 10/06 추가: 실제로 나온 가짜 AI 오류 문장
+  { re: /[봄함음됨]\s?[을를] 해 봤/, desc: '메모체 끝 뒤에 "~을 해 봤습니다" 틀 (예: "요청해봄을 해 봤습니다")' },
+  { re: /야\s?했(?:습니다|어요|어)/, desc: '"~해야함"이 과거형으로 바뀜 (예: "요청해줘야했습니다")' },
+  { re: /(?:나요|까요|가요|니까)\s*(?:입니다|이에요|예요|부탁)/, desc: '질문 문장 뒤에 "입니다"·요청 틀 (예: "있나요입니다", "해야나요 부탁드려요")' },
+  { re: /야나요|야나\?/, desc: '"해야 하나요"가 "해야나요"로 깨짐' },
+  { re: /(?:는지|은지|한지|할지|인지|던지)(?:을|를|이|가)(?=[\s.,?!]|$)/, desc: '"~지"형 값 뒤에 조사 (예: "없는지를")' },
+  { re: /[을를] 없는지/, desc: '"불이익을 없는지"처럼 조사가 틀림' },
+  { re: /해(?:봤|봐요|봐|볼|주시|주세|주실|줘|드리|드려)/, desc: '보조 용언 띄어쓰기 (예: "해봤습니다" → "해 봤습니다")' },
+  { re: /(?:는|은|한|된|할|될)것(?:처럼|이|을|은|도|으로|만)/, desc: '"것" 띄어쓰기 (예: "미달하는것처럼" → "미달하는 것처럼")' },
 ];
 
 // 1) B1: 앱이 덧붙이는 요청 문장 (사용자가 쓴 칸 값 밖에서 나오면 '추가한 요청'으로 본다)
@@ -45,8 +54,10 @@ const HAMNIDA_END_RE = /니다\.?$/;
 const POLITE_END_RE = /(?:(?:어|아|해|세|게|에|죠|래|네|대|여)요|니다|니까)[.?!]?$/;
 
 // 4) 받는 사람 규칙: 인차지는 결론 먼저 — 카드별 '결론' 칸
-//    질문 준비실은 B2(묻고 싶은 것은 마지막 문장)와 겹치지 않게 '내 판단'을 결론으로 본다.
-const QA_LEAD_FIELD = { question: "judgment", request: "request", status: "done" };
+//    질문 준비실은 첫 문장에 용건만 밝히고 순서(상황 → … → 내 판단 → 질문)를 유지하므로 따로 보지 않는다 (10/06 변경)
+const QA_LEAD_FIELD = { question: null, request: "request", status: "done" };
+// 존댓말 메시지의 1인칭은 '저/제' (반말인 동기 제외)
+const QA_PLAIN_I_RE = /(^|[\s"'(])(?:나는|나를|나도|나한테|나에게|내가)(?=[\s,.?!]|$)/;
 
 // 7) 마스킹 표현과, 점검용으로 넣는 피하고 싶은 표현
 const MASK_TOKENS = ["A사", "X원"];
@@ -72,6 +83,57 @@ const EXTRA_CASES = [
       deadline: "오늘 내로",
       deliverable: "가능한지 불가능한지",
       reason: "X사 업무의 과중",
+    },
+  },
+  // 10/06 추가: 실제로 오류가 났던 입력 모양 (메모체 ~봄·~해야함, 물음표 없는 질문, "~지"형, 존댓말 속 '나')
+  {
+    id: "E1",
+    title: "오류 사례 · 질문 준비실 · 메모체·물음표 없는 질문",
+    cardId: "question",
+    partner: "선배",
+    fields: {
+      situation: "외상매출금 조회서 회신 대사 중임",
+      tried: "거래처에 회신 요청해봄",
+      blocker: "회신이 아직 오지 않음",
+      options: "해당 건을 표본에서 제외해주실 수 있나요",
+      judgment: "추가 증빙을 요청해줘야함",
+      ask: "어떻게 해야하나요",
+    },
+  },
+  {
+    id: "E2",
+    title: "오류 사례 · 상황보고 · 인차지 · ~봄·~지형·'나를'",
+    cardId: "status",
+    partner: "인차지",
+    fields: {
+      done: "창고 재고 수량 새어봄",
+      inProgress: "차이 원인 확인",
+      blocker: "보관 기간이 지난 품목에 불이익이 없는지",
+      helpNeeded: "나를 대신해 창고 담당자에게 연락해 주실 수 있는지",
+    },
+  },
+  {
+    id: "E3",
+    title: "오류 사례 · 부탁 한 장 · '나를·내가'·~해야함",
+    cardId: "request",
+    partner: "선배",
+    fields: {
+      request: "나를 대신해 오후 회의 참석",
+      deadline: "오늘 오후 3시까지",
+      reason: "내가 같은 시간에 재고 실사에 나가야함",
+    },
+  },
+  {
+    id: "REAL",
+    title: "실제 사례(10/06 Gemini 결과가 나빴던 입력 · '내 판단'은 복원한 값)",
+    cardId: "question",
+    partner: "선배",
+    fields: {
+      situation: "표본 추출 기준 검토",
+      tried: "무작위 추출을 해봄",
+      blocker: "추출된 항목이 중요성 기준에 미달하는것처럼 보임",
+      judgment: "무작위 추출 결과를 그대로 써도 될 것 같음",
+      ask: "모르겠는데 정당한가요?",
     },
   },
 ];
@@ -107,6 +169,9 @@ function qaSplitSentences(text) {
 
 const stripEnd = (v) => String(v || "").trim().replace(/[.?!\s]+$/, "");
 const core = (v, n = 10) => stripEnd(v).slice(0, n);
+// 띄어쓰기를 무시하고 앞부분이 들어 있는지 (맞춤법 다듬기로 "해봄" → "해 봤습니다"처럼 바뀌어도 내용은 같음)
+const noSpace = (v) => String(v || "").replace(/\s+/g, "");
+const hasCore = (text, v, n = 6) => noSpace(text).includes(noSpace(stripEnd(v)).slice(0, n));
 
 // 사용자가 쓴 칸 값을 지운 나머지 = 앱이 붙인 글
 function appText(text, values) {
@@ -141,9 +206,9 @@ function checkMessage(run, variant) {
   // B2
   if (card.id === "question") {
     const last = sentences[sentences.length - 1] || "";
-    if (values.ask && !last.includes(core(values.ask, 12))) add("B2", `마지막 문장에 묻고 싶은 것이 없음 (마지막: "${last}")`);
+    if (values.ask && !hasCore(last, values.ask, 5)) add("B2", `마지막 문장에 묻고 싶은 것이 없음 (마지막: "${last}")`);
     ["tried", "judgment"].forEach((key) => {
-      if (values[key] && !text.includes(core(values[key]))) add("B2", `${key === "tried" ? "해본 것" : "내 판단"}이 본문에 없음`);
+      if (values[key] && !hasCore(text, values[key], 6)) add("B2", `${key === "tried" ? "해본 것" : "내 판단"}이 본문에 없음`);
     });
   }
 
@@ -161,11 +226,12 @@ function checkMessage(run, variant) {
   // 받는 사람 규칙
   const firstLine = text.split("\n")[0] || "";
   if (partner.id === "senior" && !firstLine.startsWith("선배님")) add("R", "선배인데 '선배님'으로 시작하지 않음");
+  if (partner.id !== "peer" && QA_PLAIN_I_RE.test(text)) add("R", "존댓말 메시지에 '나/내가'가 있음 (저/제로)");
   if (partner.id === "incharge") {
     if (!firstLine.startsWith("인차지님")) add("R", "인차지인데 '인차지님'으로 시작하지 않음");
-    const lead = values[QA_LEAD_FIELD[card.id]];
+    const lead = QA_LEAD_FIELD[card.id] && values[QA_LEAD_FIELD[card.id]];
     const firstTwo = sentences.slice(0, 2).join(" ");
-    if (lead && !firstTwo.includes(core(lead, 8))) add("R", `인차지인데 결론(${QA_LEAD_FIELD[card.id]})이 앞 두 문장 안에 없음`);
+    if (lead && !firstTwo.includes(core(lead, 6))) add("R", `인차지인데 결론(${QA_LEAD_FIELD[card.id]})이 앞 두 문장 안에 없음`);
   }
   if (partner.id === "peer") {
     if (/님[,.]/.test(firstLine)) add("R", "동기인데 호칭(~님)으로 시작");

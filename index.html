@@ -70,6 +70,8 @@
     <p class="summary"><strong id="result-card"></strong> · <span data-copy="uiCopy.partnerLabel"></span> <span id="result-recipient"></span></p>
 
     <!-- 실제 AI가 실패해 가짜 AI 결과를 보여 줄 때만 보인다 -->
+    <!-- ?review일 때만: 결과를 어디서 만들었는지 (Gemini / 가짜 AI · 이유) -->
+    <p class="ai-source" id="ai-source" hidden></p>
     <p class="ai-notice" id="ai-fallback-notice" data-copy="uiCopy.aiFallbackNotice" hidden></p>
     <div class="tabs" id="variant-tabs" role="tablist" aria-label="메시지 종류"></div>
     <textarea id="message-text" rows="9" aria-label="메시지 본문"></textarea>

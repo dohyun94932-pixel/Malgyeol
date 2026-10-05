@@ -80,7 +80,8 @@ function sendError(res, where, error) {
   const code = (error && error.code) || "server";
   console.error(`[api/${where}] ${code}`); // 오류 종류만 (입력·응답·키는 남기지 않음)
   const status = code === "rate_limit" ? 429 : code === "timeout" ? 504 : 502;
-  return send(res, status, { error: code });
+  // http 오류는 Gemini가 돌려준 상태 숫자도 함께 보낸다 (예: 404 = 모델 이름이 틀림 · 키·내용은 보내지 않음)
+  return send(res, status, error && error.status && code === "http" ? { error: code, status: error.status } : { error: code });
 }
 
 module.exports = { MAX_TEXT, MAX_PREFERRED, BadRequest, send, readBody, text, cardDef, rateLimited, sendError };

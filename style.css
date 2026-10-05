@@ -462,3 +462,10 @@ input[type="text"] {
   color: #666;
   font-size: 13px;
 }
+
+/* ?review 전용: 결과 출처 (심사용 링크에는 안 보임) */
+.ai-source {
+  margin: -12px 0 12px;
+  color: #999;
+  font-size: 12px;
+}
