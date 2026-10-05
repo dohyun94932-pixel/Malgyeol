@@ -361,10 +361,14 @@ function renderResult() {
 
   renderVariantTabs();
   showVariant();
+}
 
+// 수정 이유는 탭마다 다르다. (탭에 수정 이유가 없으면 전체 수정 이유를 쓴다)
+function renderReasons() {
+  const variant = state.variants[state.activeVariant];
   const reasons = $("reason-list");
   reasons.innerHTML = "";
-  state.reasons.forEach((reason) => {
+  (variant.reasons || state.reasons).forEach((reason) => {
     const item = document.createElement("li");
     item.textContent = reason;
     reasons.appendChild(item);
@@ -400,6 +404,7 @@ function showVariant() {
   box.value = state.variants[state.activeVariant].text;
   requestAnimationFrame(() => autoGrow(box)); // 화면이 보인 뒤 글 길이에 맞춰 높이를 늘린다
   renderIntentCheck();
+  renderReasons();
 }
 
 // 본문이 길어지면 상자 높이를 늘린다. (상자 안 스크롤 없이 전체가 보이게)
@@ -675,14 +680,19 @@ function validateData() {
     if (!flow) {
       contentProblems.push(`MESSAGE_FLOW에 카드 "${card.id}"가 없어요.`);
     } else {
-      const used = [...flow.steps.map((step) => step.key), flow.tail].filter(Boolean);
+      const used = [...flow.steps.map((step) => step.key), flow.tail && flow.tail.key].filter(Boolean);
       used.forEach((key) => {
         if (!keys.includes(key)) contentProblems.push(`MESSAGE_FLOW(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
       });
       keys.forEach((key) => {
         if (!used.includes(key)) contentProblems.push(`MESSAGE_FLOW(${card.id}): "${key}" 칸이 빠져 있어서 메시지에 안 들어가요.`);
       });
+      (DATA.profileOptions.requestStyle || []).forEach((option) => {
+        if (!flow.opener || !flow.opener[option.id]) contentProblems.push(`MESSAGE_FLOW(${card.id}): 요청 방식 "${option.id}"의 opener가 없어요.`);
+      });
     }
+    if (LEAD_FIELD[card.id] && !keys.includes(LEAD_FIELD[card.id])) contentProblems.push(`LEAD_FIELD(${card.id}): "${LEAD_FIELD[card.id]}" 칸이 cards.json에 없어요.`);
+    if (CLOSING_FIELD[card.id] && !keys.includes(CLOSING_FIELD[card.id])) contentProblems.push(`CLOSING_FIELD(${card.id}): "${CLOSING_FIELD[card.id]}" 칸이 cards.json에 없어요.`);
     (MOCK_PRESETS[card.id] || []).forEach((preset) => {
       Object.keys(preset.fields).forEach((key) => {
         if (!keys.includes(key)) contentProblems.push(`MOCK_PRESETS(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
@@ -691,8 +701,25 @@ function validateData() {
     (STRUCTURIZE_FILL[card.id] || []).forEach((key) => {
       if (!keys.includes(key)) contentProblems.push(`STRUCTURIZE_FILL(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
     });
-    if (!MESSAGE_REASONS[card.id]) contentProblems.push(`MESSAGE_REASONS에 카드 "${card.id}"가 없어요.`);
+    // 수정 이유 문구 (cards.json reasons.byField)
+    ((DATA.reasons && DATA.reasons.byField && DATA.reasons.byField[card.id]) || []).forEach((reason) => {
+      (reason.requires || []).forEach((key) => {
+        if (!keys.includes(key)) dataProblems.push(`reasons.byField(${card.id}): "${key}" 칸이 카드에 없어요.`);
+      });
+      if (!reason.text) dataProblems.push(`reasons.byField(${card.id}): text가 비어 있어요.`);
+    });
   });
+
+  if (!DATA.reasons) dataProblems.push("reasons(수정 이유 문구)가 없어요.");
+  else {
+    ["mine", "concise", "soft"].forEach((id) => {
+      if (!(DATA.reasons.byTab || {})[id]) dataProblems.push(`reasons.byTab에 "${id}"가 없어요.`);
+    });
+    DATA.partners.forEach((partner) => {
+      if (!(DATA.reasons.byPartner || {})[partner.id]) dataProblems.push(`reasons.byPartner에 "${partner.id}"가 없어요.`);
+    });
+    if (!String(DATA.reasons.avoid || "").includes("{words}")) dataProblems.push("reasons.avoid에 {words} 자리가 없어요.");
+  }
 
   DATA.partners.forEach((partner) => {
     if (!partner.label) dataProblems.push(`partners(${partner.id}): label이 비어 있어요.`);
@@ -719,6 +746,7 @@ function validateData() {
   });
   (DATA.profileOptions.requestStyle || []).forEach((option) => {
     if (!MESSAGE_CLOSINGS[option.id]) contentProblems.push(`MESSAGE_CLOSINGS에 요청 방식 "${option.id}"가 없어요.`);
+    if (!MESSAGE_CLOSINGS_URGENT[option.id]) contentProblems.push(`MESSAGE_CLOSINGS_URGENT에 요청 방식 "${option.id}"가 없어요.`);
   });
 
   // 화면에서 쓰는 문구 경로가 cards.json에 있는지
