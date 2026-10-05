@@ -12,16 +12,18 @@ const SCREENS = [
   { id: "profile", label: "4 내 말투" },
 ];
 
-// index.html을 파일로 직접 열었을 때, 또는 주소 뒤에 ?review를 붙였을 때만 보인다.
-const REVIEW_MODE = location.protocol === "file:" || new URLSearchParams(location.search).has("review");
+// 주소 뒤에 ?review를 붙였을 때만 보인다. (심사용 링크에는 안 보임)
+// 예전에는 파일을 더블클릭해 열 때(file://)도 켰지만, 지금은 cards.json을 읽어야 해서 file://로는 앱이 뜨지 않는다.
+const REVIEW_MODE = new URLSearchParams(location.search).has("review");
 
 // 앞 화면을 거치지 않고 열면 예시 데이터를 채워서 보여 준다.
 async function openForReview(id) {
   const needsData = id === "structure" || id === "result";
   if (needsData && Object.keys(state.fields).length === 0) {
-    const card = currentCard() || CARDS[0];
+    const card = currentCard() || sortedCards()[0];
     state.cardId = card.id;
-    state.input = state.input || card.placeholder;
+    // 시연 카드면 cards.json demo의 한 줄, 아니면 홈 예시 문장("예: " 뺀 것)을 쓴다.
+    state.input = state.input || (card.id === DATA.demo.cardId ? DATA.demo.oneLine : card.homePlaceholder.replace(/^예:\s*/, ""));
     const result = await structurize(card, state.input);
     state.fields = result.fields;
     state.followups = result.followups;
@@ -29,7 +31,7 @@ async function openForReview(id) {
 
   if (id === "structure") renderStructure();
   if (id === "result") {
-    state.recipient = state.recipient || RECIPIENTS[0];
+    state.recipient = state.recipient || DATA.partners[0].id;
     await buildResult();
     showScreen("result");
     return;

@@ -1,33 +1,60 @@
 // 가짜 AI (목업). 나중에 실제 AI 호출로 바꿀 때 이 파일의 함수만 교체한다.
-// 이 파일에는 로직만 둔다. 샘플 응답과 문장 틀은 모두 content.js의 임시 데이터를 쓴다.
-// 입출력 형식은 기획서 5-5와 동일하다.
+// 이 파일에는 로직만 둔다. 문장 틀은 content.js, 카드·칸·받는 사람은 data/cards.json,
+// 샘플은 data/malgyeol_sample_data.json(main.js가 불러 SAMPLE_DATA에 넣음)을 쓴다.
+// 입출력 형식은 코딩 레퍼런스 2장(8절 데이터·저장)과 기획안 10장 기준.
 
 const MOCK_DELAY_MS = 500;
 
-// 호출 1 · 구조화: { fields: {칸키: 값 또는 null}, followups: {칸키: 되묻는 질문} }
-// 입력에 없는 내용은 null로 두고 지어내지 않는다.
+// 띄어쓰기·문장부호를 뺀 비교용 문자열
+function normalizeLine(text) {
+  return String(text || "").replace(/[\s.,!?~·]/g, "");
+}
+
+// 입력이 샘플의 한 줄(oneLine)과 같은지. 한쪽이 다른 쪽을 포함해도 같다고 본다.
+function findSample(card, input) {
+  const target = normalizeLine(input);
+  if (target.length < 6) return null;
+  const samples = (typeof SAMPLE_DATA !== "undefined" && SAMPLE_DATA && SAMPLE_DATA.samples) || [];
+  return (
+    samples.find((sample) => {
+      if (sample.cardId !== card.id) return false;
+      const line = normalizeLine(sample.oneLine);
+      return line === target || line.includes(target) || target.includes(line);
+    }) || null
+  );
+}
+
+// 호출 1 · 구조화
+// 입력: card(cards.json의 카드), input(한 줄)
+// 출력: { fields: {칸키: 값 또는 null}, followups: {칸키: 되묻는 질문} }
+// 한 줄에서 알 수 있는 칸만 채우고 나머지는 null로 둔다. 지어내지 않는다.
 async function structurize(card, input) {
   await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
-
-  const preset = (MOCK_PRESETS[card.id] || []).find((p) => p.keywords.some((word) => input.includes(word)));
 
   const fields = {};
   card.fields.forEach((field) => {
     fields[field.key] = null;
   });
 
-  if (preset) {
+  const sample = findSample(card, input);
+  const preset = (MOCK_PRESETS[card.id] || []).find((p) => p.keywords.some((word) => input.includes(word)));
+
+  if (sample) {
+    // 샘플과 같은 한 줄이면, 한 줄에서 보통 알 수 있는 칸만 샘플 값으로 채운다.
+    (STRUCTURIZE_FILL[card.id] || []).forEach((key) => {
+      if (sample.fields[key]) fields[key] = sample.fields[key];
+    });
+  } else if (preset) {
     Object.assign(fields, preset.fields);
   } else {
     // 준비된 응답이 없으면 입력 전체를 첫 칸에만 넣는다.
     fields[card.fields[0].key] = input;
   }
 
+  // 비어 있는 필수 칸만 되묻는다. (코딩 레퍼런스 2장: 빈 필수 칸만 노란 강조)
   const followups = {};
   card.fields.forEach((field) => {
-    if (field.type !== "checkbox" && field.required && !fields[field.key]) {
-      followups[field.key] = field.question;
-    }
+    if (field.required && !fields[field.key]) followups[field.key] = field.followUp;
   });
 
   return { fields, followups };
@@ -144,19 +171,24 @@ function splitSentences(text) {
 // ---------- 호출 2 · 메시지 생성 ----------
 
 // 입력: { card, fields, recipient, profile, preferred }
-// 출력: { variants: [{ type, text, evidence: {칸키: 근거 구절} }], reasons: [...] }
+//   recipient: cards.json partners 항목 { id, label, honorific }
+//   profile: { sentenceLength: short|normal|detailed, requestStyle: direct|soft|careful, ending: hamnida|haeyo, avoidPhrases }
+// 출력: { variants: [{ type: mine|concise|soft, text, evidence: {칸키: 근거 구절} }], reasons: [...] }
 // 확정된 칸의 내용은 빠뜨리거나 바꾸지 않는다.
 async function generateMessages({ card, fields, recipient, profile }) {
   await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
 
   const flow = MESSAGE_FLOW[card.id];
-  const polite = profile.ending === "해요체" ? 1 : 0;
+  const style = PARTNER_STYLE[recipient.id] || { greeting: "{h}," };
+  // 가장 격식 있는 상대(클라이언트)는 말투 설정과 관계없이 합니다체로 쓴다.
+  const polite = !style.formal && profile.ending === "haeyo" ? 1 : 0;
+  const requestStyle = style.formal && profile.requestStyle === "direct" ? "soft" : profile.requestStyle;
   const pick = (template) => (Array.isArray(template) ? template[polite] : template);
   const labelOf = (key) => card.fields.find((field) => field.key === key).label;
 
   // 피하고 싶은 표현은 앱이 붙이는 문장(인사·첫 문장·끝인사 등)에서만 뺀다.
   // 사용자가 직접 적은 칸 값은 의도를 바꾸지 않도록 그대로 둔다.
-  const avoid = parseAvoid(profile.avoid);
+  const avoid = parseAvoid(profile.avoidPhrases);
   const removed = new Set();
   // 후보를 차례로 보고, 피하고 싶은 표현이 든 문장을 뺀 결과가 남는 첫 후보를 쓴다.
   const fixed = (...candidates) => {
@@ -173,13 +205,14 @@ async function generateMessages({ card, fields, recipient, profile }) {
   };
   const line = (...parts) => parts.filter(Boolean).join(" ");
 
-  const greeting = fixed(MESSAGE_GREETINGS[recipient] || "안녕하세요,");
-  const closing = MESSAGE_CLOSINGS[profile.request] || MESSAGE_CLOSINGS["부드럽게"];
-  const softClosing = MESSAGE_CLOSINGS["매우 조심스럽게"];
+  // 호칭이 비어 있으면(예: 동기) 인사 없이 시작한다.
+  const greeting = recipient.honorific ? fixed(style.greeting.replace("{h}", recipient.honorific)) : "";
+  const opener = style.formal ? flow.formalOpener : flow.opener;
+  const closing = MESSAGE_CLOSINGS[requestStyle] || MESSAGE_CLOSINGS.soft;
+  const softClosing = MESSAGE_CLOSINGS.careful;
 
   const values = {};
   card.fields.forEach((field) => {
-    if (field.type === "checkbox") return;
     const value = cleanValue(fields[field.key]);
     if (value) values[field.key] = value;
   });
@@ -201,24 +234,24 @@ async function generateMessages({ card, fields, recipient, profile }) {
   const tailSentence = tail && !/[?!]$/.test(tail) ? `${tail}.` : tail;
 
   const mine = [
-    line(greeting, fixed(flow.opener)),
+    line(greeting, fixed(opener)),
     body,
     tailSentence,
-    profile.length === "충분히 설명" ? fixed(MESSAGE_EXTRA) : null,
-    profile.length === "짧게" ? null : fixed(closing, MESSAGE_CLOSINGS["직접적으로"]),
+    profile.sentenceLength === "detailed" ? fixed(MESSAGE_EXTRA) : null,
+    profile.sentenceLength === "short" ? null : fixed(closing, MESSAGE_CLOSINGS.direct),
   ];
 
   const soft = [
-    line(greeting, fixed(flow.soft, flow.opener)),
+    line(greeting, fixed(flow.soft, opener)),
     body,
     tailSentence,
-    fixed(softClosing, MESSAGE_CLOSINGS["부드럽게"], MESSAGE_CLOSINGS["직접적으로"]),
+    fixed(softClosing, MESSAGE_CLOSINGS.soft, MESSAGE_CLOSINGS.direct),
   ];
 
   // 간결: 값을 그대로 항목으로 나열한다.
   const bulletKeys = [...flow.steps.map((step) => step.key), flow.tail].filter((key) => key && values[key]);
   const concise = [
-    line(greeting, fixed(flow.concise, flow.opener)),
+    line(greeting, fixed(style.formal ? opener : flow.concise, opener)),
     ...bulletKeys.map((key) => `- ${labelOf(key)}: ${values[key]}`),
   ];
   const conciseEvidence = Object.fromEntries(bulletKeys.map((key) => [key, values[key]]));
@@ -233,7 +266,7 @@ async function generateMessages({ card, fields, recipient, profile }) {
     ],
     reasons: [
       ...MESSAGE_REASONS[card.id],
-      MESSAGE_RECIPIENT_REASON(recipient),
+      style.formal ? MESSAGE_FORMAL_REASON : MESSAGE_RECIPIENT_REASON(recipient.label),
       ...(removed.size ? [MESSAGE_AVOID_REASON([...removed])] : []),
     ],
   };

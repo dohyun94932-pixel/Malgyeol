@@ -10,6 +10,7 @@ html {
 
 body {
   margin: 0;
+  font-size: 16px; /* 본문·입력 16px (팀 결정 10/05 · 코딩 레퍼런스 2장의 15px 대신) */
   font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   color: #222;
   background: #fafafa;
@@ -224,7 +225,7 @@ textarea:disabled {
   border: 1px solid #ccc;
   border-radius: 999px;
   background: #fff;
-  padding: 8px 18px;
+  padding: 8px 14px; /* 받는 사람 4개가 390px 화면에서 한 줄에 들어가게 */
 }
 
 .chip.selected {
@@ -428,4 +429,11 @@ input[type="text"] {
 
 [hidden] {
   display: none !important;
+}
+
+/* cards.json을 못 불러왔을 때 안내 */
+.load-error code {
+  border-radius: 4px;
+  background: #f0f0f0;
+  padding: 1px 4px;
 }
