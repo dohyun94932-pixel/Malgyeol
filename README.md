@@ -15,7 +15,8 @@ AI와 대화하며 동기들과 함께 실제로 작동하는 가벼운 웹앱 �
 ## 말결 개발 현황
 
 ### 배포
-Vercel: https://malgyeol-neon.vercel.app/
+Vercel: https://malgyeoll.vercel.app/ (개인 저장소 `mine`의 main 기준 · 누구나 접속 가능)
+- 팀 저장소 배포(이전 주소): https://malgyeol-neon.vercel.app/
 
 ### 기준 문서 (충돌하면 위에 있는 것을 따른다 · `CLAUDE.md` 우선순위와 같음)
 1. 코딩 레퍼런스 2장 design: `docs/content/말결_코딩레퍼런스.md` — 화면·컴포넌트·색·문구·메시지 생성 규칙
@@ -97,7 +98,7 @@ Vercel: https://malgyeol-neon.vercel.app/
 - 같은 페이지 아래쪽에 '문체 점검'(메시지 한 통 = 문체 하나 · 변환 못 한 끝맺음 목록)도 나옵니다. 결과 기록: `docs/qa/tone-20261005-before.md` · `-after.md`. 끝맺음 변환 표는 `content.js`의 `TONE_TABLE`
 
 ### 내부 리뷰용 화면 바로가기
-- 주소 뒤에 `?review`를 붙일 때만 화면 아래에 화면 바로가기가 나타납니다. 예: `https://malgyeol-neon.vercel.app/?review` (심사용 링크에는 안 보임)
+- 주소 뒤에 `?review`를 붙일 때만 화면 아래에 화면 바로가기가 나타납니다. 예: `https://malgyeoll.vercel.app/?review` (심사용 링크에는 안 보임)
 - 최종 배포 전에 제거: `review.js`, `review.css`를 지우고 `index.html`의 관련 3줄(`<link>`, `<nav>`, `<script>`)을 지웁니다.
 
 ### 남은 작업
@@ -120,7 +121,7 @@ VS Code + Claude Code
 1. 작업은 항상 브랜치에서 한다. (예: `git switch -c feature/작업이름`)
 2. 확인하고 싶으면 그 브랜치를 `mine`에 push한다 → Vercel **미리보기 주소**가 생긴다. (실제 배포 주소는 그대로)
    - 미리보기가 생기려면 Vercel에 `mine` 저장소를 프로젝트로 한 번 연결해 둬야 한다 (vercel.com → Add New → Project → Malgyeol 가져오기).
-3. 확인이 끝나 `mine`의 main에 합치면 `mine`과 연결된 Vercel의 **실제 배포 주소**가 바뀐다.
+3. 확인이 끝나 `mine`의 main에 합치면 `mine`과 연결된 Vercel의 **실제 배포 주소**(https://malgyeoll.vercel.app/)가 바뀐다.
 4. 팀 저장소(`origin`)에는 내가 요청할 때만 push한다. 팀 저장소 main에 합치면 팀 배포 주소(https://malgyeol-neon.vercel.app/)가 바뀐다.
 
 ```bash
