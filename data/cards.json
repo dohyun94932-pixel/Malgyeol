@@ -1,0 +1,368 @@
+{
+  "_meta": {
+    "app": "말결",
+    "version": "1.0",
+    "updated": "2026-10-05",
+    "source": "현재 배포 앱(10/04 캡처) · 기획안 v1.1 · 샘플 데이터(전세민) · UI 레퍼런스(이은서)",
+    "owner": "콘텐츠·데이터팀 최준성",
+    "rules": [
+      "required=true 칸이 모두 채워져야 [메시지 만들기]가 활성화된다.",
+      "AI가 채우지 못한 required 칸은 노란 강조 + followUp 문구를 보여 준다.",
+      "비어 있는 칸의 내용은 메시지에 추가하지 않는다.",
+      "샘플·placeholder에 실제 사내 데이터·고객·개인정보는 쓰지 않는다('A사','X원' 마스킹)."
+    ]
+  },
+  "partners": [
+    {
+      "id": "senior",
+      "label": "선배",
+      "honorific": "선배님",
+      "tone": "존댓말, 바쁜 상대 배려"
+    },
+    {
+      "id": "incharge",
+      "label": "인차지",
+      "honorific": "인차지님",
+      "tone": "보고 위주, 결론 먼저"
+    },
+    {
+      "id": "peer",
+      "label": "동기",
+      "honorific": "",
+      "tone": "반말 허용, 짧게"
+    },
+    {
+      "id": "client",
+      "label": "클라이언트",
+      "honorific": "담당자님",
+      "tone": "가장 격식, 내부 용어 금지"
+    }
+  ],
+  "cards": [
+    {
+      "id": "question",
+      "order": 1,
+      "demoPriority": 1,
+      "name": "질문 준비실",
+      "subtitle": "막혀서 선배에게 물어봐야 할 때",
+      "homePlaceholder": "예: 표본 추출 기준이 헷갈려서 확인받고 싶어요",
+      "fields": [
+        {
+          "key": "situation",
+          "label": "상황",
+          "required": true,
+          "placeholder": "예: A사 매출 증빙 표본 테스트 조서를 작성 중입니다.",
+          "followUp": "어떤 업무를 하다가 생긴 일인가요?"
+        },
+        {
+          "key": "tried",
+          "label": "해본 것",
+          "required": true,
+          "placeholder": "예: 표본 40건 중 35건의 세금계산서와 입금 내역을 대사했습니다.",
+          "followUp": "어떤 걸 먼저 확인해 보셨나요?"
+        },
+        {
+          "key": "blocker",
+          "label": "막힌 지점",
+          "required": true,
+          "placeholder": "예: 5건은 기말 직후 인도된 건이라 귀속 시기 판단이 어렵습니다.",
+          "followUp": "정확히 어디서 막혔나요?"
+        },
+        {
+          "key": "options",
+          "label": "선택지",
+          "required": false,
+          "placeholder": "예: ① 인도 시점 증빙 추가 요청 ② 예외 사항으로 기록",
+          "followUp": "생각해 둔 방법이 있나요?"
+        },
+        {
+          "key": "judgment",
+          "label": "내 판단",
+          "required": true,
+          "placeholder": "예: 컷오프 이슈일 수 있어 ①이 맞다고 생각합니다.",
+          "followUp": "어느 쪽이 맞다고 생각하나요?"
+        },
+        {
+          "key": "ask",
+          "label": "묻고 싶은 것",
+          "required": true,
+          "placeholder": "예: 인도 시점 증빙은 클라이언트에 직접 요청해도 되나요?",
+          "followUp": "상대에게 무엇을 확인받고 싶나요?"
+        }
+      ],
+      "sampleIds": [
+        "q01",
+        "q02",
+        "q03",
+        "q04",
+        "q05",
+        "q06",
+        "q07",
+        "q08",
+        "q09",
+        "q10"
+      ]
+    },
+    {
+      "id": "request",
+      "order": 2,
+      "demoPriority": 2,
+      "name": "부탁 한 장",
+      "subtitle": "자료 요청이나 일정 조정을 부탁할 때",
+      "homePlaceholder": "예: 세무조정 초안 제출을 하루만 늦춰도 될지 여쭤보고 싶어요",
+      "fields": [
+        {
+          "key": "request",
+          "label": "요청 내용",
+          "required": true,
+          "placeholder": "예: 세무조정계산서 초안 제출을 하루 연장하고 싶습니다.",
+          "followUp": "무엇을 부탁하려고 하나요?"
+        },
+        {
+          "key": "deadline",
+          "label": "기한",
+          "required": true,
+          "placeholder": "예: 내일 오전 10시까지 제출",
+          "followUp": "언제까지 필요한가요?"
+        },
+        {
+          "key": "deliverable",
+          "label": "필요한 결과(형태)",
+          "required": false,
+          "placeholder": "예: 세무조정계산서 초안 엑셀 1부",
+          "followUp": "어떤 형태로 받으면 되나요?"
+        },
+        {
+          "key": "reason",
+          "label": "이유 및 배경",
+          "required": false,
+          "placeholder": "예: A사의 계정별 원장이 오늘 오후에 도착해 검증 시간이 필요합니다.",
+          "followUp": "왜 부탁이 필요한지 한 줄로 알려 주세요."
+        },
+        {
+          "key": "alternative",
+          "label": "대안 및 조건",
+          "required": false,
+          "placeholder": "예: 오늘 중 접대비·기부금 부분은 먼저 공유드릴 수 있습니다.",
+          "followUp": "상대가 어렵다면 제안할 대안이 있나요?"
+        },
+        {
+          "key": "consentNeeded",
+          "label": "상대 동의 필요 여부",
+          "required": false,
+          "placeholder": "예: 필요 (연장 승인)",
+          "followUp": "상대의 승인이나 일정 확인이 필요한가요?"
+        }
+      ],
+      "sampleIds": [
+        "r01",
+        "r02",
+        "r03",
+        "r04",
+        "r05",
+        "r06",
+        "r07",
+        "r08",
+        "r09",
+        "r10"
+      ]
+    },
+    {
+      "id": "status",
+      "order": 3,
+      "demoPriority": 3,
+      "name": "한 줄 상황보고",
+      "subtitle": "진행 상황을 짧게 알려야 할 때",
+      "homePlaceholder": "예: 재고 실사 참관은 끝났고 결과 정리는 오늘 중으로 마칠 예정이에요",
+      "fields": [
+        {
+          "key": "done",
+          "label": "완료한 것",
+          "required": true,
+          "placeholder": "예: 매출 표본 40건 중 35건의 증빙 대사",
+          "followUp": "끝낸 일은 무엇인가요?"
+        },
+        {
+          "key": "inProgress",
+          "label": "진행 중인 것",
+          "required": false,
+          "placeholder": "예: 나머지 5건의 컷오프 확인",
+          "followUp": "지금 하고 있는 일은요?"
+        },
+        {
+          "key": "blocker",
+          "label": "막힌 점",
+          "required": false,
+          "placeholder": "예: A사의 인도 증빙이 아직 도착하지 않았습니다.",
+          "followUp": "막힌 부분이 있나요?"
+        },
+        {
+          "key": "helpNeeded",
+          "label": "도움 요청",
+          "required": false,
+          "placeholder": "예: A사에 증빙 회신 요청을 한 번 더 부탁드려도 될까요?",
+          "followUp": "상대가 해 줘야 할 일이 있나요?"
+        },
+        {
+          "key": "nextEta",
+          "label": "다음 완료 예상 시점",
+          "required": false,
+          "placeholder": "예: 증빙 수령 후 반나절 안에 완료 예상",
+          "followUp": "언제쯤 끝날 것 같나요?"
+        }
+      ],
+      "sampleIds": [
+        "s01",
+        "s02",
+        "s03",
+        "s04",
+        "s05",
+        "s06",
+        "s07",
+        "s08",
+        "s09",
+        "s10"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "mine",
+      "label": "내 말투안"
+    },
+    {
+      "id": "concise",
+      "label": "더 간결하게"
+    },
+    {
+      "id": "soft",
+      "label": "더 부드럽게"
+    }
+  ],
+  "onboarding": {
+    "title": "30초 말투 설정",
+    "desc": "같은 뜻의 두 문장 중 더 나다운 쪽을 골라 주세요. 건너뛰어도 괜찮아요.",
+    "questions": [
+      {
+        "key": "sentenceLength",
+        "q": "문장 길이 · 어느 쪽이 나답나요?",
+        "a": {
+          "text": "재고평가충당금 건으로 질문드립니다. 전기 산식은 확인했고, 당기 데이터에서 막혀 있습니다.",
+          "sets": "short"
+        },
+        "b": {
+          "text": "재고평가충당금 계산이 맞지 않아 여쭤봅니다. 전기 산식을 먼저 확인했고 당기 재고 데이터도 다시 봤는데 원인을 찾지 못했습니다. 두 가지 방식 중 A가 맞다고 생각합니다.",
+          "sets": "detailed"
+        }
+      },
+      {
+        "key": "requestStyle",
+        "q": "요청 방식 · 어느 쪽이 나답나요?",
+        "a": {
+          "text": "내일 오전 10시까지 확인 부탁드립니다.",
+          "sets": "direct"
+        },
+        "b": {
+          "text": "바쁘시겠지만 시간 되실 때 확인해 주시면 감사하겠습니다.",
+          "sets": "careful"
+        }
+      },
+      {
+        "key": "ending",
+        "q": "끝맺음 · 어느 쪽이 나답나요?",
+        "a": {
+          "text": "확인해 보았습니다. 내일까지 드리겠습니다.",
+          "sets": "hamnida"
+        },
+        "b": {
+          "text": "확인해 봤어요. 내일까지 드릴게요.",
+          "sets": "haeyo"
+        }
+      }
+    ]
+  },
+  "profileOptions": {
+    "sentenceLength": [
+      {
+        "id": "short",
+        "label": "짧게"
+      },
+      {
+        "id": "normal",
+        "label": "보통"
+      },
+      {
+        "id": "detailed",
+        "label": "충분히 설명"
+      }
+    ],
+    "requestStyle": [
+      {
+        "id": "direct",
+        "label": "직접적으로"
+      },
+      {
+        "id": "soft",
+        "label": "부드럽게"
+      },
+      {
+        "id": "careful",
+        "label": "매우 조심스럽게"
+      }
+    ],
+    "ending": [
+      {
+        "id": "hamnida",
+        "label": "합니다체"
+      },
+      {
+        "id": "haeyo",
+        "label": "해요체"
+      }
+    ],
+    "defaults": {
+      "sentenceLength": "normal",
+      "requestStyle": "soft",
+      "ending": "hamnida"
+    }
+  },
+  "demo": {
+    "cardId": "question",
+    "partner": "선배",
+    "oneLine": "재고평가충당금 계산이 안 맞는데 선배한테 물어보고 싶어요",
+    "expectEmptyField": "tried",
+    "afterToneChange": "requestStyle=careful"
+  },
+  "uiCopy": {
+    "homeBanner": "30초 만에 내 말투 설정하기",
+    "skip": "건너뛰기",
+    "homeTitle": "어떤 말을 전하고 싶나요?",
+    "oneLineLabel": "한 줄로 적어 주세요",
+    "confidentialNotice": "클라이언트명·금액 등 기밀 정보는 'A사', 'X원'처럼 바꿔 입력하세요.",
+    "structureTitle": "구조화 확인",
+    "partnerLabel": "받는 사람",
+    "fieldsLabel": "내용 확인",
+    "fieldsHint": "* 표시는 꼭 채워야 해요. 노란 칸은 아직 비어 있어요.",
+    "resultTitle": "결과",
+    "intentCheckTitle": "의도 체크",
+    "intentCheckDesc": "확인한 내용이 메시지에 남아 있는지 살펴봤어요. 본문을 고치면 다시 확인해요.",
+    "intentOk": "포함됨",
+    "intentWarn": "빠졌을 수 있어요",
+    "reasonTitle": "수정 이유",
+    "copiedButton": "✓ 복사됐어요",
+    "myToneTitle": "내 말투",
+    "avoidPlaceholder": "예: 번거로우시겠지만, 송구하지만",
+    "favoritesDesc": "결과 화면에서 반영한 문장이에요. 최근 5개까지 저장돼요.",
+    "buttons": {
+      "organize": "정리하기",
+      "home": "← 홈으로",
+      "makeMessage": "메시지 만들기",
+      "copy": "복사",
+      "regenerate": "다시 만들기",
+      "applyToMyTone": "이 표현을 내 말투에 반영",
+      "editStructure": "구조 수정",
+      "applyOnboarding": "내 말투에 적용",
+      "resetOnboarding": "질문으로 다시 설정"
+    }
+  }
+}
