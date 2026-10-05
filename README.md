@@ -78,4 +78,19 @@ Vercel: https://malgyeol-neon.vercel.app/
 
 ### 개발 방식
 VS Code + Claude Code
-GitHub main push → Vercel 자동 배포
+
+### 저장소 2개와 작업 순서
+| 이름 | 주소 | 용도 |
+|---|---|---|
+| `mine` | https://github.com/dohyun94932-pixel/Malgyeol | 개인 저장소 · 평소 작업과 확인용 |
+| `origin` | https://github.com/kkihalee/-A-2- | 팀 저장소 · **요청할 때만** 올린다 |
+
+1. 작업은 항상 브랜치에서 한다. (예: `git switch -c feature/작업이름`)
+2. 확인하고 싶으면 그 브랜치를 `mine`에 push한다 → Vercel **미리보기 주소**가 생긴다. (실제 배포 주소는 그대로)
+   - 미리보기가 생기려면 Vercel에 `mine` 저장소를 프로젝트로 한 번 연결해 둬야 한다 (vercel.com → Add New → Project → Malgyeol 가져오기).
+3. 확인이 끝나 `mine`의 main에 합치면 `mine`과 연결된 Vercel의 **실제 배포 주소**가 바뀐다.
+4. 팀 저장소(`origin`)에는 내가 요청할 때만 push한다. 팀 저장소 main에 합치면 팀 배포 주소(https://malgyeol-neon.vercel.app/)가 바뀐다.
+
+```bash
+git push mine feature/작업이름
+```

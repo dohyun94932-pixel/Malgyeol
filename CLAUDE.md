@@ -31,3 +31,11 @@
 ■ 작업 방식
 - 수정 요청을 받으면 "유지할 것 / 바꿀 것"을 먼저 짧게 정리한 뒤 코드를 고친다.
 - 바꾼 내용은 마지막에 한두 줄로 요약해 준다 (decision-log와 기획안 P.13 근거로 쓴다).
+
+■ 저장소 · 배포 작업 방식 (빌드팀 추가 · 2026-10-05)
+- 원격 저장소는 2개다. mine = 개인 저장소(github.com/dohyun94932-pixel/Malgyeol), origin = 팀 저장소(github.com/kkihalee/-A-2-).
+- 작업은 항상 브랜치에서 한다. main에서 바로 고치지 않는다.
+- 확인용으로는 브랜치를 mine에 push한다 → Vercel 미리보기 주소가 생긴다. (Vercel에 mine 저장소가 연결돼 있을 때)
+- mine의 main에 합치면 mine의 실제 배포 주소가 바뀐다. 합치기 전에 사용자에게 확인한다.
+- origin(팀 저장소)에는 사용자가 요청할 때만 push·PR·병합한다. 그 밖의 경우 origin은 건드리지 않는다.
+- push 전에 .env, .env.local, API 키·토큰이 올라가지 않는지 확인한다.
