@@ -114,22 +114,8 @@ function resolveParticle(token, word, form) {
   }
 }
 
-// 메모처럼 적힌 끝(~않음, ~못함 …)을 문장 끝으로 바꾼다. [합니다체, 해요체, 반말]
-// '생각함·판단함'처럼 지금 생각을 말하는 끝은 과거형(~했습니다)이 아니라 현재형으로 바꾼다.
-const PREDICATE_RULES = [
-  { suffix: "생각함", forms: ["생각합니다", "생각해요", "생각해"] },
-  { suffix: "판단함", forms: ["판단합니다", "판단해요", "판단해"] },
-  { suffix: "예상함", forms: ["예상합니다", "예상해요", "예상해"] },
-  { suffix: "필요함", forms: ["필요합니다", "필요해요", "필요해"] },
-  { suffix: "않음", forms: ["않습니다", "않아요", "않아"] },
-  { suffix: "못함", forms: ["못했습니다", "못했어요", "못했어"] },
-  { suffix: "없음", forms: ["없습니다", "없어요", "없어"] },
-  { suffix: "있음", forms: ["있습니다", "있어요", "있어"] },
-  { suffix: "됨", forms: ["됐습니다", "됐어요", "됐어"] },
-  { suffix: "함", forms: ["했습니다", "했어요", "했어"] },
-  { suffix: "보임", forms: ["보입니다", "보여요", "보여"] },
-  { suffix: "임", copula: true },
-];
+// 메모처럼 적힌 끝(~함 · ~음 · ~임 · ~됨)을 문장 끝으로 바꾸는 규칙은 content.js의 TONE_TABLE.memo에 있다.
+const PREDICATE_RULES = TONE_TABLE.memo;
 
 // 두 글의 같은 앞부분. 의도 체크 근거 구절은 끝맺음을 바꾼 뒤에도 본문에 그대로 남는 이 앞부분을 쓴다.
 function commonPrefix(a, b) {
@@ -139,15 +125,24 @@ function commonPrefix(a, b) {
   return prefix.length >= Math.min(4, a.length) ? prefix : b;
 }
 
+// 메모체 규칙 하나가 값에 맞는지 ('~음'은 앞 글자에 받침이 있을 때만: 많음 O / 다음 X)
+function memoRuleFor(value) {
+  return PREDICATE_RULES.find((rule) => {
+    if (!value.endsWith(rule.suffix) || value.length === rule.suffix.length) return false;
+    return !rule.stem || hasBatchim(value.slice(0, -rule.suffix.length));
+  });
+}
+
 // 반환: { text: 문장 끝까지 바뀐 값, evidence: 바뀌고 난 뒤에도 본문에 그대로 남는 앞부분 }
 function toPredicate(value, form) {
-  for (const rule of PREDICATE_RULES) {
-    if (!value.endsWith(rule.suffix) || value.length === rule.suffix.length) continue;
-    const stem = value.slice(0, -rule.suffix.length);
-    const text = rule.copula ? stem + resolveParticle("입니다", stem, form) : stem + rule.forms[form];
-    return { text, evidence: commonPrefix(value, text) };
-  }
-  return { text: value, evidence: value };
+  const rule = memoRuleFor(value);
+  if (!rule) return { text: value, evidence: value };
+  const stem = value.slice(0, -rule.suffix.length);
+  let text;
+  if (rule.copula) text = stem + resolveParticle("입니다", stem, form);
+  else if (rule.stem) text = form === 0 ? `${stem}습니다` : convertDeclarative(`${stem}습니다`, form) || `${stem}습니다`;
+  else text = stem + rule.forms[form];
+  return { text, evidence: commonPrefix(value, text) };
 }
 
 const TEMPLATE_TOKEN = /\{(v|p|은는|이가|을를|으로로|입니다)\}/g;
@@ -195,34 +190,66 @@ function classifyValue(value) {
   const body = v.replace(/[.!\s]+$/, "");
   if (JI_END_RE.test(body)) return "ji";
   if (/[.!]$/.test(v) || SENTENCE_END_RE.test(body)) return "sentence";
-  if (PREDICATE_RULES.some((r) => body.endsWith(r.suffix) && body.length > r.suffix.length)) return "memo";
+  if (memoRuleFor(body)) return "memo";
   return "noun";
 }
 
-// ---------- 끝맺음 바꾸기 ----------
-// 자주 쓰는 끝은 표로 바로 바꾼다. [합니다체, 해요체, 반말] (긴 것부터)
-const SPECIAL_ENDINGS = [
-  ["부탁드리겠습니다", "부탁드릴게요", "부탁할게"],
-  ["공유드리겠습니다", "공유드릴게요", "공유할게"],
-  ["요청드립니다", "요청드려요", "부탁해"],
-  ["부탁드립니다", "부탁드려요", "부탁해"],
-  ["감사하겠습니다", "감사해요", "고마워"],
-  ["감사합니다", "감사해요", "고마워"],
-  ["드리겠습니다", "드릴게요", "줄게"],
-  ["요청합니다", "요청해요", "부탁해"],
-  ["괜찮습니다", "괜찮아요", "괜찮아"],
-];
-// "~주세요" 같은 부탁 문장은 끝맺음에 맞는 부탁 의문형으로
-const REQUEST_FORMS = ["주시겠습니까?", "주실 수 있을까요?", "줄 수 있어?"];
+// ---------- 끝맺음 맞추기 (메시지 한 통 = 문체 하나) ----------
+// 끝맺음 번호(form): 0 = 합니다체 · 1 = 해요체 · 2 = 반말. 변환 표는 content.js의 TONE_TABLE.
+// 표에 없는 끝은 아래 기본 규칙(받침으로 바꾸기)으로 바꾸고, 그래도 안 되면 그대로 둔다.
 
-// 받침 없는 동사 끝 글자를 해요체 모양으로 (하→해, 되→돼, 리→려, 보→봐, 주→줘, 쓰→써, 시→세)
-function haeyoSyllable(ch) {
-  if (ch === "하") return "해";
-  if (ch === "되") return "돼";
-  if (ch === "시") return "세";
-  const { cho, jung } = splitJamo(ch);
-  const next = { 8: 9, 13: 14, 20: 6, 18: 4 }[jung]; // ㅗ→ㅘ ㅜ→ㅝ ㅣ→ㅕ ㅡ→ㅓ
-  return next === undefined ? ch : joinJamo(cho, next, 0);
+// 이 문장 끝이 이미 정한 문체인지. 합니다체 의문문은 "~ㄹ까요?"도 허용 (팀 결정 10/05)
+const BANMAL_END_RE = /(?:어|아|해|돼|야|줘|봐|와|워|려|겨|라|러|게|래|까|나|지|자|네|군)$/;
+function toneValid(body, isQuestion, form) {
+  if (form === 0) return /(?:니다|니까|십시오)$/.test(body) || (isQuestion && /까요$/.test(body));
+  if (form === 1) return /요$/.test(body);
+  return BANMAL_END_RE.test(body) && !/요$/.test(body);
+}
+
+// 표의 한 칸을 실제 끝 글자 목록으로 ({이에요} → 이에요·예요, {이야} → 이야·야)
+function expandEnding(ending) {
+  if (ending === "{이에요}") return ["이에요", "예요"];
+  if (ending === "{이야}") return ["이야", "야"];
+  return [ending];
+}
+function resolveEnding(ending, stem) {
+  if (ending === "{이에요}") return hasBatchim(stem) ? "이에요" : "예요";
+  if (ending === "{이야}") return hasBatchim(stem) ? "이야" : "야";
+  return ending;
+}
+
+// 표에서 가장 긴 끝을 찾아 정한 문체로 바꾼다. 반환: null(표에 없음) 또는 { body, punct, changed }
+function tableEnding(body, rows, form) {
+  let best = null;
+  rows.forEach((row) => {
+    const members = [];
+    row.forms.forEach((ending, tone) => expandEnding(ending).forEach((e) => members.push({ e, tone, valid: tone === form })));
+    (row.also || []).forEach((list, tone) => list.forEach((e) => members.push({ e, tone, valid: tone === form })));
+    members.forEach((m) => {
+      if (body.endsWith(m.e) && (!best || m.e.length > best.m.e.length)) best = { row, m };
+    });
+  });
+  if (!best) return null;
+  if (best.m.valid) return { body, punct: null, changed: false };
+  const stem = body.slice(0, body.length - best.m.e.length);
+  return { body: stem + resolveEnding(best.row.forms[form], stem), punct: best.row.punct ? best.row.punct[form] : null, changed: true };
+}
+
+// 받침 없는 마지막 글자(base)를 해요체 어간으로 (요를 붙이기 전). pre는 그 앞 글자들
+function haeyoStem(pre, base) {
+  if (base === "하") return `${pre}해`;
+  if (base === "되") return `${pre}돼`;
+  if (base === "시") return `${pre}세`;
+  if (base === "르" && isHangul(pre.slice(-1))) {
+    // 르 불규칙: 다르 → 달라, 부르 → 불러
+    const p = pre.slice(-1);
+    return pre.slice(0, -1) + withJong(p, 8) + ([0, 8].includes(splitJamo(p).jung) ? "라" : "러");
+  }
+  const { cho, jung } = splitJamo(base);
+  const next = { 8: 9, 13: 14, 20: 6, 18: 4, 11: 10 }[jung]; // ㅗ→ㅘ ㅜ→ㅝ ㅣ→ㅕ ㅡ→ㅓ ㅚ→ㅙ
+  if (next !== undefined) return pre + joinJamo(cho, next, 0);
+  if (jung === 16 || jung === 19) return `${pre}${base}어`; // ㅟ·ㅢ: 바뀌어, 띄어
+  return pre + base; // ㅏ ㅓ ㅐ ㅔ ㅕ 등은 그대로 (가요, 서요, 내요)
 }
 
 // 합니다체(…니다) → 해요체. 바꿀 수 없으면 null
@@ -232,8 +259,8 @@ function toHaeyo(body) {
     const last = stem.slice(-1);
     if (!isHangul(last)) return null;
     const { jung, jong } = splitJamo(last);
-    if (jong === 20) return stem + "어요"; // 했습니다 → 했어요, 겠습니다 → 겠어요
-    if (jong === 17) return stem.slice(0, -1) + withJong(last, 0) + "워요"; // 어렵습니다 → 어려워요
+    if (jong === 20) return `${stem}어요`; // 했습니다 → 했어요
+    if (jong === 17) return `${stem.slice(0, -1)}${withJong(last, 0)}워요`; // 어렵습니다 → 어려워요
     return stem + ([0, 2, 8].includes(jung) ? "아요" : "어요"); // 같습니다 → 같아요, 없습니다 → 없어요
   }
   if (body.endsWith("니다")) {
@@ -243,7 +270,7 @@ function toHaeyo(body) {
     const base = withJong(last, 0);
     const pre = stem.slice(0, -1);
     if (base === "이") return pre + (hasBatchim(pre) ? "이에요" : "예요"); // 중입니다 → 중이에요
-    return pre + haeyoSyllable(base) + "요"; // 합니다 → 해요, 드립니다 → 드려요
+    return `${haeyoStem(pre, base)}요`; // 합니다 → 해요, 드립니다 → 드려요, 바뀝니다 → 바뀌어요
   }
   return null;
 }
@@ -251,103 +278,147 @@ function toHaeyo(body) {
 // 해요체(…요) → 합니다체. 바꿀 수 없으면 null
 function toHamnida(body) {
   if (/(?:이에요|예요)$/.test(body)) return body.replace(/(?:이에요|예요)$/, "입니다");
-  if (body.endsWith("세요")) return body.slice(0, -2) + "십니다";
+  if (body.endsWith("세요")) return `${body.slice(0, -2)}십니다`;
   if (!body.endsWith("요")) return null;
   const core = body.slice(0, -1);
   const last = core.slice(-1);
   const pre = core.slice(0, -1);
   const prev = pre.slice(-1);
-  if (last === "어" || last === "아") return prev && hasBatchim(prev) ? pre + "습니다" : null; // 좋겠어요 → 좋겠습니다
-  if (last === "해") return pre + "합니다";
-  if (last === "돼") return pre + "됩니다";
-  if (last === "게" && jongOf(prev) === 8) return pre.slice(0, -1) + withJong(prev, 0) + "겠습니다"; // 드릴게요 → 드리겠습니다
+  if (last === "어" || last === "아") {
+    if (!isHangul(prev)) return null;
+    return hasBatchim(prev) ? `${pre}습니다` : `${pre.slice(0, -1)}${withJong(prev, 17)}니다`; // 좋겠어요 → 좋겠습니다, 바뀌어요 → 바뀝니다
+  }
+  if (last === "해") return `${pre}합니다`;
+  if (last === "돼") return `${pre}됩니다`;
+  if (last === "게" && jongOf(prev) === 8) return `${pre.slice(0, -1)}${withJong(prev, 0)}겠습니다`; // 드릴게요 → 드리겠습니다
   if (!isHangul(last) || splitJamo(last).jong !== 0) return null;
   const { cho, jung } = splitJamo(last);
-  if (cho === 11 && jung === 14 && isHangul(prev)) return pre.slice(0, -1) + withJong(prev, 17) + "습니다"; // 어려워요 → 어렵습니다
-  const back = { 9: 8, 14: 13, 6: 20 }[jung]; // ㅘ→ㅗ ㅝ→ㅜ ㅕ→ㅣ
+  if (cho === 11 && jung === 14 && isHangul(prev)) return `${pre.slice(0, -1)}${withJong(prev, 17)}습니다`; // 어려워요 → 어렵습니다
+  const back = { 9: 8, 14: 13, 6: 20, 10: 11 }[jung]; // ㅘ→ㅗ ㅝ→ㅜ ㅕ→ㅣ ㅙ→ㅚ
   if (back === undefined && ![0, 1, 4, 5].includes(jung)) return null;
-  return pre + joinJamo(cho, back === undefined ? jung : back, 17) + "니다"; // 드려요 → 드립니다, 봐요 → 봅니다
+  return `${pre}${joinJamo(cho, back === undefined ? jung : back, 17)}니다`; // 드려요 → 드립니다, 봐요 → 봅니다
 }
 
 // 해요체 → 반말. 바꿀 수 없으면 null
 function toBanmal(body) {
-  if (body.endsWith("이에요")) return body.slice(0, -3) + "이야";
-  if (body.endsWith("예요")) return body.slice(0, -2) + "야";
+  if (body.endsWith("이에요")) return `${body.slice(0, -3)}이야`;
+  if (body.endsWith("예요")) return `${body.slice(0, -2)}야`;
   if (body.endsWith("세요")) return null;
   return body.endsWith("요") ? body.slice(0, -1) : null;
 }
 
-// 마침표를 뺀 완성 문장의 끝맺음만 form에 맞춘다. 앞부분(사용자가 쓴 내용)은 그대로 둔다.
-function convertEnding(body, form) {
-  for (const set of SPECIAL_ENDINGS) {
-    const i = set.findIndex((ending) => body.endsWith(ending));
-    if (i !== -1) return body.slice(0, body.length - set[i].length) + set[form];
-  }
-  let haeyo;
+// 평서문 기본 규칙. 바꿀 수 없으면 null
+function convertDeclarative(body, form) {
+  let out = null;
   if (body.endsWith("니다")) {
-    if (form === 0) return body;
-    haeyo = toHaeyo(body);
+    const haeyo = toHaeyo(body);
+    out = form === 0 ? body : haeyo && (form === 1 ? haeyo : toBanmal(haeyo));
   } else if (body.endsWith("요")) {
-    if (form === 1) return body;
-    if (form === 0) return toHamnida(body) || body;
-    haeyo = body;
+    out = form === 1 ? body : form === 0 ? toHamnida(body) : toBanmal(body);
   } else if (/(?:어|아|해|돼|줘|봐|와|워|려|겨)$/.test(body)) {
-    // 반말로 쓴 문장
-    if (form === 2) return body;
-    haeyo = body + "요";
-    if (form === 0) return toHamnida(haeyo) || body;
-  } else {
-    return body;
+    const haeyo = `${body}요`;
+    out = form === 2 ? body : form === 1 ? haeyo : toHamnida(haeyo);
   }
-  if (!haeyo) return body;
-  return form === 1 ? haeyo : toBanmal(haeyo) || haeyo;
+  return out && toneValid(out, false, form) ? out : null;
 }
 
-// 질문 문장은 그대로 쓰되 받는 사람 규칙에 맞게 끝만 다듬는다.
-function convertQuestion(body, form, formal) {
-  if (form === 2) {
-    const q = body
-      .replace(/주실 수 있(?:나요|을까요|으세요)$/, "줄 수 있어")
-      .replace(/드려도 (될까요|되나요)$/, (_, end) => `해도 ${end}`)
-      .replace(/주실/g, "줄")
-      .replace(/하실/g, "할");
-    return q.endsWith("요") ? q.slice(0, -1) : q;
-  }
-  if (form === 0 && formal) {
-    // 가장 격식: "있나요?" → "있습니까?", "되나요?" → "됩니까?"
-    return body.replace(/(.)나요$/, (_, ch) => (hasBatchim(ch) ? `${ch}습니까` : `${withJong(ch, 17)}니까`));
-  }
-  // 반말 질문을 높임으로 ("알려줄 수 있어?" → "알려줄 수 있어요?")
-  return /(?:어|아|까|나|래)$/.test(body) ? `${body}요` : body;
+// 어간 + ㄹ까 (되 → 될까, 남기 → 남길까, 있 → 있을까)
+function addKka(stem) {
+  const last = stem.slice(-1);
+  if (!isHangul(last)) return `${stem}까`;
+  const jong = splitJamo(last).jong;
+  if (jong === 0) return `${stem.slice(0, -1)}${withJong(last, 8)}까`;
+  return jong === 8 ? `${stem}까` : `${stem}을까`;
 }
 
-// 완성 문장·질문을 그대로 쓰되 끝맺음만 맞춘다. 반환: { text, evidence }
-function conjugate(raw, form, formal) {
-  const text = String(raw).trim();
-  const isQuestion = text.endsWith("?");
-  const body = text.replace(/[.!?\s]+$/, "");
-  const request = !isQuestion && body.match(/^(.*?)(?:주세요|주십시오|줘요|줘)$/);
-  if (request && request[1].trim()) {
-    return { text: request[1] + REQUEST_FORMS[form], evidence: request[1].trim() };
+// 의문문 기본 규칙. 합니다체·반말은 "~ㄹ까(요)?"로, 해요체는 "~나요?"도 그대로. 바꿀 수 없으면 null
+function convertQuestionBody(body, form) {
+  let stem = null;
+  let m;
+  if ((m = body.match(/^(.+)나요$/))) stem = m[1];
+  else if ((m = body.match(/^(.+)습니까$/))) stem = m[1];
+  else if ((m = body.match(/^(.+)니까$/)) && jongOf(m[1].slice(-1)) === 17) stem = m[1].slice(0, -1) + withJong(m[1].slice(-1), 0);
+  let out = null;
+  if (stem) out = addKka(stem) + (form === 2 ? "" : "요");
+  else if (/까요$/.test(body)) out = form === 2 ? body.slice(0, -1) : body;
+  else if (/까$/.test(body)) out = form === 2 ? body : `${body}요`;
+  else if (/(?:어|아|해|돼)요$/.test(body)) out = form === 2 ? body.slice(0, -1) : null;
+  else if (/(?:어|아|해|돼)$/.test(body)) {
+    if (form === 2) out = body;
+    else if (form === 1) out = `${body}요`;
+    else if (/해$/.test(body)) out = `${body.slice(0, -1)}할까요`;
+    else if (/돼$/.test(body)) out = `${body.slice(0, -1)}될까요`;
+    else if (isHangul(body.slice(-2, -1)) && hasBatchim(body.slice(-2, -1))) out = `${body.slice(0, -1)}을까요`; // 괜찮아 → 괜찮을까요
   }
-  if (isQuestion) {
-    const q = convertQuestion(body, form, formal);
-    return { text: `${q}?`, evidence: commonPrefix(body, q) };
+  if (out && form === 2) {
+    // 반말에서는 높임을 뺀다 (주실 → 줄, 하실 → 할, 부탁드려도 → 부탁해도)
+    out = out.replace(/주실/g, "줄").replace(/하실/g, "할").replace(/드려도 /g, "해도 ");
   }
-  const out = convertEnding(body, form);
-  return { text: `${out}.`, evidence: commonPrefix(body, out) };
+  return out && toneValid(out, true, form) ? out : null;
+}
+
+// 문장 하나의 끝맺음을 정한 문체로. 반환: { text, status: changed | same | unknown | skip }
+function convertSentence(sentence, form) {
+  const m = String(sentence).match(/^([\s\S]*?)([.?!]*)$/);
+  const body = m[1].trimEnd();
+  const punct = m[2];
+  // 한글로 끝나지 않는 줄(괄호 등)과 인사("안녕하세요, 담당자님.")는 문장 끝맺음이 아니라서 그대로 둔다.
+  if (!body || !isHangul(body.slice(-1)) || /님$/.test(body)) return { text: sentence, status: "skip" };
+  const isQuestion = punct.includes("?");
+  const rows = isQuestion ? TONE_TABLE.question : [...TONE_TABLE.request, ...TONE_TABLE.statement];
+  const hit = tableEnding(body, rows, form);
+  if (hit) return { text: hit.body + (hit.punct || punct || "."), status: hit.changed ? "changed" : "same" };
+  if (toneValid(body, isQuestion, form)) return { text: sentence, status: "same" };
+  const out = isQuestion ? convertQuestionBody(body, form) : convertDeclarative(body, form);
+  if (out) return { text: out + (punct || "."), status: "changed" };
+  return { text: sentence, status: "unknown" };
+}
+
+// 마지막 단계: 메시지 전체의 모든 문장을 나눠 끝맺음을 정한 문체로 맞춘다.
+// 목록 줄("- 기한: …")은 값이 완성 문장·질문일 때만 바꾸고(마침표 없이), 괄호 줄은 그대로 둔다.
+function unifyTone(text, form) {
+  return text
+    .split("\n")
+    .map((line) => {
+      const bullet = line.match(/^(-\s*[^:]+:\s*)(.*)$/);
+      if (bullet) {
+        if (!["sentence", "question"].includes(classifyValue(bullet[2]))) return line;
+        return bullet[1] + convertSentence(bullet[2], form).text.replace(/\.$/, "");
+      }
+      return (line.match(/[^.?!]+[.?!]*\s*/g) || [line])
+        .map((part) => {
+          const space = part.match(/\s*$/)[0];
+          return convertSentence(part.trim(), form).text + space;
+        })
+        .join("")
+        .trimEnd();
+    })
+    .join("\n");
+}
+
+// 끝맺음을 바꾼 뒤에도 근거 구절이 본문에 글자 그대로 있도록, 본문에 있는 앞부분까지만 남긴다.
+function fitEvidence(evidence, text) {
+  const out = {};
+  Object.entries(evidence).forEach(([key, phrase]) => {
+    let p = phrase;
+    while (p && !text.includes(p)) p = p.slice(0, -1);
+    p = p.trimEnd();
+    out[key] = p.length >= Math.min(4, phrase.length) ? p : phrase;
+  });
+  return out;
 }
 
 const pickForm = (template, form) => (Array.isArray(template) ? template[form] ?? template[template.length - 1] : template || "");
 
-// 칸 하나를 문장으로. 값의 모양에 따라 그대로 쓰거나 알맞은 문장 틀에 끼운다.
-function renderStep(step, raw, form, formal) {
+// 칸 하나를 문장으로. 완성 문장·질문은 그대로 두고(끝맺음은 마지막 단계에서 맞춘다), 나머지는 알맞은 문장 틀에 끼운다.
+function renderStep(step, raw, form) {
   const shape = classifyValue(raw);
   // "특별히 막힌 점은 없습니다"처럼 '없음'을 말하는 값에는 "다만" 같은 연결어를 붙이지 않는다.
   const connector = MEANS_NONE_RE.test(String(raw).trim()) ? "" : pickForm(step.connector, form);
   if (shape === "sentence" || shape === "question") {
-    const r = conjugate(raw, form, formal);
-    return { text: connector ? `${connector} ${r.text}` : r.text, evidence: r.evidence };
+    const value = String(raw).trim();
+    const sentence = /[.?!]$/.test(value) ? value : `${value}.`;
+    return { text: connector ? `${connector} ${sentence}` : sentence, evidence: value.replace(/[.?!\s]+$/, "") };
   }
   const value = cleanValue(raw);
   let template;
@@ -360,12 +431,10 @@ function renderStep(step, raw, form, formal) {
   return renderTemplate(pickForm(template, form).replace("{c}", connector ? `${connector} ` : ""), value, form);
 }
 
-// 더 간결하게의 목록 줄: 완성 문장은 끝맺음만 맞추고(마침표 없이), 나머지는 값 그대로
-function renderBullet(raw, form, formal) {
-  const shape = classifyValue(raw);
-  if (shape !== "sentence" && shape !== "question") return { text: cleanValue(raw), evidence: cleanValue(raw) };
-  const r = conjugate(raw, form, formal);
-  return { text: r.text.replace(/\.$/, ""), evidence: r.evidence };
+// 더 간결하게의 목록 줄: 값 그대로 (마침표만 뺌 · 끝맺음은 마지막 단계에서 맞춘다)
+function renderBullet(raw) {
+  const value = cleanValue(raw);
+  return { text: value, evidence: value.replace(/[?!]+$/, "") };
 }
 
 // 피하고 싶은 표현: 쉼표·줄바꿈으로 나눠 적은 목록
@@ -394,7 +463,8 @@ async function generateMessages({ card, fields, recipient, profile }) {
 
   const flow = MESSAGE_FLOW[card.id];
   const style = PARTNER_STYLE[recipient.id] || { greeting: "{h}," };
-  // 받는 사람 규칙이 말투 설정보다 먼저: 동기는 반말, 클라이언트는 합니다체 [확인 필요]
+  // 메시지 한 통 = 문체 하나. 먼저 문체를 정한다: 클라이언트 = 합니다체, 동기 = 반말 [확인 필요],
+  // 선배·인차지 = 내 말투 끝맺음 설정. (CLAUDE.md '반드시 지킬 것')
   const ending = style.ending || profile.ending;
   const form = ending === "banmal" ? 2 : ending === "haeyo" ? 1 : 0;
   const requestStyle = style.formal && profile.requestStyle === "direct" ? "soft" : profile.requestStyle;
@@ -439,14 +509,14 @@ async function generateMessages({ card, fields, recipient, profile }) {
   const evidence = {};
   const body = steps
     .map((step) => {
-      const r = renderStep(step, raw[step.key], form, style.formal);
+      const r = renderStep(step, raw[step.key], form);
       evidence[step.key] = r.evidence;
       return r.text;
     })
     .join(" ");
   let tail = null; // 질문 준비실은 '묻고 싶은 것'을 마지막 문장에 그대로 (B2)
   if (tailStep) {
-    const r = renderStep(tailStep, raw[tailStep.key], form, style.formal);
+    const r = renderStep(tailStep, raw[tailStep.key], form);
     evidence[tailStep.key] = r.evidence;
     tail = r.text;
   }
@@ -475,7 +545,7 @@ async function generateMessages({ card, fields, recipient, profile }) {
   const bulletKeys = [...steps.map((step) => step.key), tailStep && tailStep.key].filter(Boolean);
   const conciseEvidence = {};
   const bullets = bulletKeys.map((key) => {
-    const r = renderBullet(raw[key], form, style.formal);
+    const r = renderBullet(raw[key]);
     conciseEvidence[key] = r.evidence;
     return `- ${labelOf(key)}: ${r.text}`;
   });
@@ -499,10 +569,15 @@ async function generateMessages({ card, fields, recipient, profile }) {
     return [(copy.byTab || {})[tab], fieldLine, lastLine].filter(Boolean).slice(0, 3);
   };
 
+  // 마지막 단계: 탭 3종 모두 문장을 나눠 끝맺음을 정한 문체 하나로 맞추고, 근거 구절을 바뀐 본문에 맞춘다.
+  const finish = (text, ev) => {
+    const unified = unifyTone(text, form);
+    return { text: unified, evidence: fitEvidence(ev, unified) };
+  };
   const variants = [
-    { type: "mine", text: mine, evidence, reasons: reasonsFor("mine", 0) },
-    { type: "concise", text: concise, evidence: conciseEvidence, reasons: reasonsFor("concise", 1) },
-    { type: "soft", text: soft, evidence, reasons: reasonsFor("soft", 2) },
+    { type: "mine", ...finish(mine, evidence), reasons: reasonsFor("mine", 0) },
+    { type: "concise", ...finish(concise, conciseEvidence), reasons: reasonsFor("concise", 1) },
+    { type: "soft", ...finish(soft, evidence), reasons: reasonsFor("soft", 2) },
   ];
   return { variants, reasons: variants[0].reasons };
 }
