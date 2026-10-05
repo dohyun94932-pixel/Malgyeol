@@ -18,12 +18,20 @@ const state = {
   activeVariant: 0,
 };
 
+// 저장된 말투를 읽는다. 다른 버전에서 저장한 값(없는 선택지·항목)이 남아 있어도 지금 선택지에 있는 값만 쓴다.
 function loadProfile() {
+  let saved = {};
   try {
-    return { ...DEFAULT_PROFILE, ...JSON.parse(localStorage.getItem(STORAGE_KEYS.profile)) };
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.profile)) || {};
   } catch (error) {
-    return { ...DEFAULT_PROFILE };
+    saved = {};
   }
+  const profile = { ...DEFAULT_PROFILE };
+  PROFILE_OPTIONS.forEach((option) => {
+    if (option.values.includes(saved[option.key])) profile[option.key] = saved[option.key];
+  });
+  if (typeof saved.avoid === "string") profile.avoid = saved.avoid;
+  return profile;
 }
 
 function saveProfile(profile) {
@@ -39,7 +47,7 @@ function saveProfile(profile) {
 function loadPreferred() {
   try {
     const list = JSON.parse(localStorage.getItem(STORAGE_KEYS.preferred));
-    return Array.isArray(list) ? list : [];
+    return Array.isArray(list) ? list.filter((text) => typeof text === "string" && text.trim()) : [];
   } catch (error) {
     return [];
   }
@@ -113,6 +121,7 @@ async function submitHome() {
     state.fields = result.fields;
     state.followups = result.followups;
     state.recipient = null;
+    state.variants = []; // 새로 정리하면 이전 결과로 돌아가지 않게 비운다
     renderStructure();
     showScreen("structure");
   } catch (error) {
@@ -307,8 +316,17 @@ function renderVariantTabs() {
 }
 
 function showVariant() {
-  $("message-text").value = state.variants[state.activeVariant].text;
+  const box = $("message-text");
+  box.value = state.variants[state.activeVariant].text;
+  requestAnimationFrame(() => autoGrow(box)); // 화면이 보인 뒤 글 길이에 맞춰 높이를 늘린다
   renderIntentCheck();
+}
+
+// 본문이 길어지면 상자 높이를 늘린다. (상자 안 스크롤 없이 전체가 보이게)
+function autoGrow(textarea) {
+  textarea.style.height = "auto";
+  const border = textarea.offsetHeight - textarea.clientHeight;
+  textarea.style.height = `${textarea.scrollHeight + border}px`;
 }
 
 // 의도 체크: 사용자가 확정한 칸마다 AI가 준 근거 구절이 본문에 실제로 있는지 문자열로 확인한다.
@@ -392,6 +410,7 @@ function renderProfile() {
   const hasProfile = Boolean(localStorage.getItem(STORAGE_KEYS.profile));
   const skipped = Boolean(localStorage.getItem(STORAGE_KEYS.bannerSkipped));
   $("onboarding").hidden = hasProfile || skipped;
+  $("profile-back-result").hidden = state.variants.length === 0; // 결과를 만든 뒤에만 보인다
 
   renderOnboarding();
   renderSettings();
@@ -636,6 +655,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("message-text").addEventListener("input", () => {
     state.variants[state.activeVariant].text = $("message-text").value;
+    autoGrow($("message-text"));
     renderIntentCheck();
   });
   $("copy-message").addEventListener("click", copyMessage);

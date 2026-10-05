@@ -2,6 +2,12 @@
   box-sizing: border-box;
 }
 
+/* 가로로 돌렸을 때 iPhone이 글자를 키우지 않게 */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
@@ -13,6 +19,8 @@ body {
 button {
   font: inherit;
   cursor: pointer;
+  touch-action: manipulation; /* 두 번 탭 확대 지연 없애기 */
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:disabled {
@@ -26,7 +34,7 @@ button:disabled {
   align-items: center;
   max-width: 720px;
   margin: 0 auto;
-  padding: 16px 20px;
+  padding: calc(16px + env(safe-area-inset-top)) 20px 16px;
 }
 
 .logo {
@@ -49,7 +57,7 @@ button:disabled {
 .screen {
   max-width: 720px;
   margin: 0 auto;
-  padding: 8px 20px 48px;
+  padding: 8px 20px calc(48px + env(safe-area-inset-bottom)); /* iPhone 아래 막대 영역만큼 여백 */
 }
 
 h1 {
@@ -168,6 +176,7 @@ textarea {
   border-radius: 8px;
   padding: 12px;
   font: inherit;
+  font-size: 16px; /* iPhone Safari는 16px 미만 입력칸을 누르면 화면을 확대한다 */
   resize: vertical;
 }
 
@@ -256,7 +265,12 @@ textarea:disabled {
 
 .actions {
   display: flex;
+  flex-wrap: wrap; /* 버튼이 많으면 글자를 꺾지 않고 다음 줄로 넘긴다 */
   gap: 12px;
+}
+
+.actions .secondary {
+  white-space: nowrap;
 }
 
 .actions .primary {
@@ -288,7 +302,9 @@ textarea:disabled {
 
 #message-text {
   margin-bottom: 24px;
+  overflow: hidden; /* 글 길이에 맞춰 높이가 늘어난다 (main.js autoGrow) */
   line-height: 1.6;
+  resize: none;
 }
 
 .check-list,
@@ -350,6 +366,7 @@ input[type="text"] {
   border-radius: 8px;
   padding: 10px 12px;
   font: inherit;
+  font-size: 16px; /* iPhone 확대 방지 */
 }
 
 .question {

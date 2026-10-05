@@ -76,6 +76,7 @@ const PREDICATE_RULES = [
   { suffix: "있음", formal: "있습니다", polite: "있어요" },
   { suffix: "됨", formal: "됐습니다", polite: "됐어요" },
   { suffix: "함", formal: "했습니다", polite: "했어요" },
+  { suffix: "보임", formal: "보입니다", polite: "보여요" },
   { suffix: "임", copula: true },
 ];
 
@@ -128,6 +129,18 @@ function cleanValue(value) {
   return String(value || "").trim().replace(/[.\s]+$/, "");
 }
 
+// 피하고 싶은 표현: 쉼표·줄바꿈으로 나눠 적은 목록
+function parseAvoid(text) {
+  return String(text || "")
+    .split(/[,，、\n]/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function splitSentences(text) {
+  return (String(text).match(/[^.?!]+[.?!]*/g) || []).map((s) => s.trim()).filter(Boolean);
+}
+
 // ---------- 호출 2 · 메시지 생성 ----------
 
 // 입력: { card, fields, recipient, profile, preferred }
@@ -138,11 +151,31 @@ async function generateMessages({ card, fields, recipient, profile }) {
 
   const flow = MESSAGE_FLOW[card.id];
   const polite = profile.ending === "해요체" ? 1 : 0;
-  const greeting = MESSAGE_GREETINGS[recipient] || "안녕하세요,";
-  const closing = MESSAGE_CLOSINGS[profile.request] || MESSAGE_CLOSINGS["부드럽게"];
-  const softClosing = MESSAGE_CLOSINGS["매우 조심스럽게"];
   const pick = (template) => (Array.isArray(template) ? template[polite] : template);
   const labelOf = (key) => card.fields.find((field) => field.key === key).label;
+
+  // 피하고 싶은 표현은 앱이 붙이는 문장(인사·첫 문장·끝인사 등)에서만 뺀다.
+  // 사용자가 직접 적은 칸 값은 의도를 바꾸지 않도록 그대로 둔다.
+  const avoid = parseAvoid(profile.avoid);
+  const removed = new Set();
+  // 후보를 차례로 보고, 피하고 싶은 표현이 든 문장을 뺀 결과가 남는 첫 후보를 쓴다.
+  const fixed = (...candidates) => {
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const kept = splitSentences(pick(candidate)).filter((sentence) => {
+        const hit = avoid.find((word) => sentence.includes(word));
+        if (hit) removed.add(hit);
+        return !hit;
+      });
+      if (kept.length) return kept.join(" ");
+    }
+    return "";
+  };
+  const line = (...parts) => parts.filter(Boolean).join(" ");
+
+  const greeting = fixed(MESSAGE_GREETINGS[recipient] || "안녕하세요,");
+  const closing = MESSAGE_CLOSINGS[profile.request] || MESSAGE_CLOSINGS["부드럽게"];
+  const softClosing = MESSAGE_CLOSINGS["매우 조심스럽게"];
 
   const values = {};
   card.fields.forEach((field) => {
@@ -164,21 +197,28 @@ async function generateMessages({ card, fields, recipient, profile }) {
 
   const tail = flow.tail ? values[flow.tail] : null;
   if (tail) evidence[flow.tail] = tail;
+  // 문장으로 이어 쓸 때는 질문 칸 끝에 마침표를 붙인다. (근거 구절은 마침표 없는 원래 값)
+  const tailSentence = tail && !/[?!]$/.test(tail) ? `${tail}.` : tail;
 
   const mine = [
-    `${greeting} ${pick(flow.opener)}`,
+    line(greeting, fixed(flow.opener)),
     body,
-    tail,
-    profile.length === "충분히 설명" ? MESSAGE_EXTRA[polite] : null,
-    profile.length === "짧게" ? null : closing[polite],
+    tailSentence,
+    profile.length === "충분히 설명" ? fixed(MESSAGE_EXTRA) : null,
+    profile.length === "짧게" ? null : fixed(closing, MESSAGE_CLOSINGS["직접적으로"]),
   ];
 
-  const soft = [`${greeting} ${pick(flow.soft)}`, body, tail, softClosing[polite]];
+  const soft = [
+    line(greeting, fixed(flow.soft, flow.opener)),
+    body,
+    tailSentence,
+    fixed(softClosing, MESSAGE_CLOSINGS["부드럽게"], MESSAGE_CLOSINGS["직접적으로"]),
+  ];
 
   // 간결: 값을 그대로 항목으로 나열한다.
   const bulletKeys = [...flow.steps.map((step) => step.key), flow.tail].filter((key) => key && values[key]);
   const concise = [
-    `${greeting} ${pick(flow.concise)}`,
+    line(greeting, fixed(flow.concise, flow.opener)),
     ...bulletKeys.map((key) => `- ${labelOf(key)}: ${values[key]}`),
   ];
   const conciseEvidence = Object.fromEntries(bulletKeys.map((key) => [key, values[key]]));
@@ -191,6 +231,10 @@ async function generateMessages({ card, fields, recipient, profile }) {
       { type: "concise", text: join(concise), evidence: conciseEvidence },
       { type: "soft", text: join(soft), evidence },
     ],
-    reasons: [...MESSAGE_REASONS[card.id], MESSAGE_RECIPIENT_REASON(recipient)],
+    reasons: [
+      ...MESSAGE_REASONS[card.id],
+      MESSAGE_RECIPIENT_REASON(recipient),
+      ...(removed.size ? [MESSAGE_AVOID_REASON([...removed])] : []),
+    ],
   };
 }

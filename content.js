@@ -348,6 +348,9 @@ const MESSAGE_REASONS = {
 // 받는 사람별 마지막 수정 이유 한 줄
 const MESSAGE_RECIPIENT_REASON = (recipient) => `${recipient}에게 보내는 글이라 호칭과 말투를 거기에 맞췄어요.`;
 
+// [임시] 피하고 싶은 표현이 든 인사·끝인사 문장을 뺐을 때 붙는 수정 이유
+const MESSAGE_AVOID_REASON = (words) => `피하고 싶은 표현(${words.join(", ")})이 들어간 문장은 빼고 만들었어요.`;
+
 // ===== 5. 화면 안내 문구 =====
 // [임시] 사용자에게 보이는 짧은 안내 문구. (화면 제목·버튼 이름은 index.html에 있다)
 const UI_TEXT = {

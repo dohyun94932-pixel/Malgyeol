@@ -49,4 +49,9 @@ function initReviewBar() {
     bar.appendChild(button);
   });
   bar.hidden = false;
+  // 바가 화면 아래 버튼을 가리지 않게, 바 높이만큼 아래 여백을 준다. (좁은 화면에선 바가 두 줄이 된다)
+  document.body.classList.add("review-mode");
+  const fit = () => document.body.style.setProperty("--review-bar-height", `${bar.offsetHeight}px`);
+  fit();
+  window.addEventListener("resize", fit);
 }
