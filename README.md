@@ -62,6 +62,7 @@ Vercel: https://malgyeol-neon.vercel.app/
 - 샘플 30건 + 추가 사례(T5 · X1)를 탭 3종 × 끝맺음 2종 × 요청 방식 3종(+피하고 싶은 표현)으로 만들어 B1·B2·B3, 받는 사람 규칙, 문법 깨짐, 말투 혼합, 마스킹, 의도 체크 근거, 피하고 싶은 표현을 셉니다.
 - 결과는 화면의 [결과 .md 내려받기]로 받아 `docs/qa/check-YYYYMMDD-before.md` / `-after.md` 로 저장합니다. 점검 기준(패턴 목록)은 `scripts/check-messages.js` 맨 위에 있습니다.
 - 결과 기록: `docs/qa/check-20261005-before.md`(고치기 전) · `docs/qa/check-20261005-after.md`(고친 뒤, 비교표 포함)
+- 같은 페이지 아래쪽에 '문체 점검'(메시지 한 통 = 문체 하나 · 변환 못 한 끝맺음 목록)도 나옵니다. 결과 기록: `docs/qa/tone-20261005-before.md` · `-after.md`. 끝맺음 변환 표는 `content.js`의 `TONE_TABLE`
 
 ### 내부 리뷰용 화면 바로가기
 - 주소 뒤에 `?review`를 붙일 때만 화면 아래에 화면 바로가기가 나타납니다. 예: `https://malgyeol-neon.vercel.app/?review` (심사용 링크에는 안 보임)
