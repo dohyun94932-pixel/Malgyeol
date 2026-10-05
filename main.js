@@ -1,18 +1,24 @@
-const STORAGE_KEYS = {
-  profile: "malgyeol.profile",
-  preferred: "malgyeol.preferred",
-  bannerSkipped: "malgyeol.bannerSkipped",
-};
+// 화면 문구·카드·칸·받는 사람·말투 옵션은 data/cards.json에서 읽는다. (콘텐츠팀 기준 · 문구는 cards.json에서 고친다)
+// 샘플 30건(data/malgyeol_sample_data.json)은 가짜 AI 구조화(ai.js)가 참고한다.
+const DATA_URL = "data/cards.json";
+const SAMPLE_URL = "data/malgyeol_sample_data.json";
 
+let DATA = null; // cards.json
+let SAMPLE_DATA = null; // 샘플 데이터 (ai.js가 읽는다)
+
+// 말투 저장 형식: 코딩 레퍼런스 2장 8절
+// malgyeol.profile = { sentenceLength, requestStyle, ending, avoidPhrases, preferredExamples, onboarded }
+const STORAGE_KEY = "malgyeol.profile";
+// 예전 형식에서 따로 저장하던 값 (새 형식으로 옮긴 뒤 지운다)
+const LEGACY_KEYS = { preferred: "malgyeol.preferred", bannerSkipped: "malgyeol.bannerSkipped" };
+const PROFILE_KEYS = ["sentenceLength", "requestStyle", "ending"];
 const MAX_PREFERRED = 5;
 
 // 화면 사이에 넘겨줄 상태
 const state = {
-  selectedCardId: null, // 홈에서 고른 카드 (안 고르면 null)
-  cardId: null, // 화면 2·3에서 쓰는 카드
-  usedDefaultCard: false,
+  cardId: null,
   input: "",
-  recipient: null,
+  recipient: null, // 받는 사람 id (cards.json partners)
   fields: {},
   followups: {},
   variants: [],
@@ -20,42 +26,117 @@ const state = {
   activeVariant: 0,
 };
 
-// 저장된 말투를 읽는다. 예전 버전 값(없어진 선택지·항목)이 남아 있어도 지금 선택지에 있는 값만 쓴다.
+const $ = (id) => document.getElementById(id);
+
+// "uiCopy.buttons.copy" 같은 경로로 cards.json 값을 꺼낸다.
+function getPath(path) {
+  return path.split(".").reduce((value, key) => (value == null ? undefined : value[key]), DATA);
+}
+
+// ---------- 말투 저장 ----------
+
+function defaultProfile() {
+  return { ...DATA.profileOptions.defaults, avoidPhrases: "", preferredExamples: [], onboarded: false };
+}
+
+// 저장된 말투를 읽는다. 선택지에 없는 값이나 잘못된 값이 있어도 기본값으로 바꿔 읽는다.
 function loadProfile() {
   let saved = {};
   try {
-    saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.profile)) || {};
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
   } catch (error) {
     saved = {};
   }
-  const profile = { ...DEFAULT_PROFILE };
-  PROFILE_OPTIONS.forEach((option) => {
-    if (option.values.includes(saved[option.key])) profile[option.key] = saved[option.key];
+  const profile = defaultProfile();
+  PROFILE_KEYS.forEach((key) => {
+    if ((DATA.profileOptions[key] || []).some((option) => option.id === saved[key])) profile[key] = saved[key];
   });
-  if (typeof saved.avoid === "string") profile.avoid = saved.avoid;
+  if (typeof saved.avoidPhrases === "string") profile.avoidPhrases = saved.avoidPhrases;
+  if (Array.isArray(saved.preferredExamples)) {
+    profile.preferredExamples = saved.preferredExamples
+      .filter((text) => typeof text === "string" && text.trim())
+      .slice(0, MAX_PREFERRED);
+  }
+  profile.onboarded = saved.onboarded === true;
   return profile;
 }
 
 function saveProfile(profile) {
   try {
-    localStorage.setItem(STORAGE_KEYS.profile, JSON.stringify(profile));
-    $("profile-banner").hidden = true;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+    $("profile-banner").hidden = profile.onboarded;
     return true;
   } catch (error) {
     return false;
   }
 }
 
-function loadPreferred() {
+// 바꿀 값만 넘기면 저장된 말투에 합쳐 저장한다.
+function updateProfile(changes) {
+  return saveProfile({ ...loadProfile(), ...changes });
+}
+
+// 예전 형식(한글 값의 length / request / ending / avoid, 따로 저장한 preferred · bannerSkipped)을 새 형식으로 옮긴다.
+function migrateProfile() {
+  let saved = null;
   try {
-    const list = JSON.parse(localStorage.getItem(STORAGE_KEYS.preferred));
-    return Array.isArray(list) ? list.filter((text) => typeof text === "string" && text.trim()) : [];
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
   } catch (error) {
-    return [];
+    saved = null;
+  }
+  const oldProfile = saved && !("sentenceLength" in saved) && ("length" in saved || "request" in saved || "avoid" in saved);
+  const oldPreferred = localStorage.getItem(LEGACY_KEYS.preferred);
+  const oldSkipped = localStorage.getItem(LEGACY_KEYS.bannerSkipped);
+  if (!oldProfile && oldPreferred === null && oldSkipped === null) return;
+
+  // 한글 이름(예: "매우 조심스럽게") → id(예: "careful")
+  const idOf = (key, label) => ((DATA.profileOptions[key] || []).find((option) => option.label === label) || {}).id;
+  const next = saved && !oldProfile ? { ...saved } : {};
+  if (oldProfile) {
+    next.sentenceLength = idOf("sentenceLength", saved.length);
+    next.requestStyle = idOf("requestStyle", saved.request);
+    next.ending = idOf("ending", saved.ending);
+    next.avoidPhrases = typeof saved.avoid === "string" ? saved.avoid : "";
+    next.onboarded = true; // 예전에 말투를 저장했다면 설정을 마친 것으로 본다
+  }
+  try {
+    const list = JSON.parse(oldPreferred);
+    if (Array.isArray(list)) next.preferredExamples = [...(next.preferredExamples || []), ...list];
+  } catch (error) {
+    // 읽을 수 없는 예전 값은 버린다
+  }
+  if (oldSkipped) next.onboarded = true;
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  const cleaned = loadProfile(); // 잘못된 값은 여기서 기본값으로 바뀐다
+  if (saveProfile(cleaned)) {
+    localStorage.removeItem(LEGACY_KEYS.preferred);
+    localStorage.removeItem(LEGACY_KEYS.bannerSkipped);
   }
 }
 
-const $ = (id) => document.getElementById(id);
+// ---------- 화면 공통 ----------
+
+// data-copy / data-copy-placeholder가 붙은 요소에 cards.json 문구를 넣는다.
+function applyCopy() {
+  document.querySelectorAll("[data-copy]").forEach((el) => {
+    const text = getPath(el.dataset.copy);
+    if (typeof text !== "string") return;
+    // "* 표시는 …"처럼 *로 시작하면 *만 빨간색으로 보이게 한다.
+    if (text.startsWith("*")) {
+      const star = document.createElement("span");
+      star.className = "required";
+      star.textContent = "*";
+      el.replaceChildren(star, text.slice(1));
+    } else {
+      el.textContent = text;
+    }
+  });
+  document.querySelectorAll("[data-copy-placeholder]").forEach((el) => {
+    const text = getPath(el.dataset.copyPlaceholder);
+    if (typeof text === "string") el.placeholder = text;
+  });
+}
 
 function showScreen(name) {
   document.querySelectorAll(".screen").forEach((screen) => {
@@ -65,82 +146,66 @@ function showScreen(name) {
   window.scrollTo(0, 0);
 }
 
+function sortedCards() {
+  return [...DATA.cards].sort((a, b) => a.order - b.order);
+}
+
+function currentCard() {
+  return DATA.cards.find((c) => c.id === state.cardId);
+}
+
+function currentPartner() {
+  return DATA.partners.find((p) => p.id === state.recipient);
+}
+
 // ---------- 화면 1 · 홈 ----------
 
 function renderCards() {
   const list = $("card-list");
   list.innerHTML = "";
 
-  CARDS.forEach((card) => {
+  sortedCards().forEach((card) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "card";
     button.dataset.cardId = card.id;
-    button.innerHTML = `
-      <span class="card-title">${card.title}</span>
-      <span class="card-desc">${card.desc}</span>
-    `;
-    if (card.comingSoon) {
-      button.classList.add("coming-soon");
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.textContent = UI_TEXT.comingSoonBadge;
-      button.querySelector(".card-title").appendChild(badge);
-      button.addEventListener("click", () => showToast(UI_TEXT.comingSoonToast, "home-toast"));
-    } else {
-      button.setAttribute("aria-pressed", "false");
-      button.addEventListener("click", () => selectCard(state.selectedCardId === card.id ? null : card.id));
-    }
+    button.setAttribute("aria-pressed", "false");
+    const title = document.createElement("span");
+    title.className = "card-title";
+    title.textContent = card.name;
+    const desc = document.createElement("span");
+    desc.className = "card-desc";
+    desc.textContent = card.subtitle;
+    button.append(title, desc);
+    button.addEventListener("click", () => selectCard(card.id, { focus: true }));
     list.appendChild(button);
   });
 }
 
-function randomExample(card) {
-  const examples = card.examples && card.examples.length ? card.examples : [card.placeholder];
-  return `${UI_TEXT.examplePrefix}${examples[Math.floor(Math.random() * examples.length)]}`;
-}
+// 카드를 고르면 입력창 예시도 그 카드의 homePlaceholder로 바뀐다.
+function selectCard(cardId, { focus = false } = {}) {
+  state.cardId = cardId;
+  const card = currentCard();
 
-// 카드는 골라도 되고 안 골라도 된다. 같은 카드를 다시 누르면 선택이 풀린다.
-function selectCard(cardId) {
-  state.selectedCardId = cardId;
-  const card = CARDS.find((c) => c.id === cardId);
-
-  document.querySelectorAll(".card:not(.coming-soon)").forEach((el) => {
+  document.querySelectorAll(".card").forEach((el) => {
     const selected = el.dataset.cardId === cardId;
     el.classList.toggle("selected", selected);
     el.setAttribute("aria-pressed", String(selected));
   });
 
   const input = $("home-input");
-  const selectedLine = $("home-selected");
-  if (card) {
-    selectedLine.textContent = `${UI_TEXT.selectedCard}${card.title}${UI_TEXT.selectedCardHint}`;
-    selectedLine.hidden = false;
-    input.placeholder = randomExample(card);
-    input.focus();
-    input.scrollIntoView({ behavior: "smooth", block: "center" });
-  } else {
-    selectedLine.hidden = true;
-    input.placeholder = randomExample(defaultCard());
-  }
+  input.placeholder = card.homePlaceholder;
+  if (focus) input.focus();
   updateSubmitButton();
 }
 
 function updateSubmitButton() {
   state.input = $("home-input").value.trim();
-  $("home-submit").disabled = !state.input;
-}
-
-function defaultCard() {
-  return CARDS.find((c) => c.id === DEFAULT_CARD_ID);
+  $("home-submit").disabled = !(state.cardId && state.input);
 }
 
 async function submitHome() {
-  if (!state.input) return;
-
-  // 카드를 고르지 않았으면 기본 카드(질문 준비실)로 정리한다.
-  state.usedDefaultCard = !state.selectedCardId;
-  state.cardId = state.selectedCardId || DEFAULT_CARD_ID;
+  if (!state.cardId || !state.input) return;
 
   const card = currentCard();
   const button = $("home-submit");
@@ -153,7 +218,7 @@ async function submitHome() {
     state.fields = result.fields;
     state.followups = result.followups;
     state.recipient = null;
-    state.variants = [];
+    state.variants = []; // 새로 정리하면 이전 결과로 돌아가지 않게 비운다
     renderStructure();
     showScreen("structure");
   } catch (error) {
@@ -164,47 +229,16 @@ async function submitHome() {
   }
 }
 
-// ---------- 화면 2 · 상황·의도 구체화 ----------
-
-function currentCard() {
-  return CARDS.find((c) => c.id === state.cardId);
-}
+// ---------- 화면 2 · 구조화 확인 ----------
 
 function isFilled(field) {
-  if (field.type === "checkbox") return true;
   return Boolean(state.fields[field.key] && String(state.fields[field.key]).trim());
-}
-
-function fieldLabel(field) {
-  const label = document.createElement("span");
-  label.className = "field-label";
-  label.textContent = field.label;
-  if (field.required) {
-    const star = document.createElement("span");
-    star.className = "required";
-    star.textContent = " *";
-    label.appendChild(star);
-  } else if (field.type !== "checkbox") {
-    const optional = document.createElement("span");
-    optional.className = "optional";
-    optional.textContent = UI_TEXT.optionalMark;
-    label.appendChild(optional);
-  }
-  return label;
-}
-
-function fieldHint(field) {
-  const hint = document.createElement("p");
-  hint.className = "field-hint";
-  hint.id = `hint-${field.key}`;
-  return hint;
 }
 
 function renderStructure() {
   const card = currentCard();
-  $("structure-card").textContent = card.title;
-  $("structure-note").textContent = state.usedDefaultCard ? `${UI_TEXT.defaultCardNote} · ` : "";
-  $("structure-input").textContent = `“${state.input}”`;
+  $("structure-card").textContent = card.name;
+  $("structure-input").textContent = state.input;
 
   renderRecipients();
 
@@ -216,95 +250,53 @@ function renderStructure() {
     wrap.className = "field";
     wrap.dataset.key = field.key;
 
-    if (field.type === "checkbox") {
-      const label = document.createElement("label");
-      label.className = "check-label";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = Boolean(state.fields[field.key]);
-      box.addEventListener("change", () => {
-        state.fields[field.key] = box.checked;
-      });
-      label.append(box, ` ${field.checkLabel}`);
-      wrap.append(fieldLabel(field), label);
-    } else if (field.type === "choice") {
-      // 선택지 중 하나를 고르는 칸 (예: 거절 / 부분 수락 / 대안 제시)
-      const chips = document.createElement("div");
-      chips.className = "chips";
-      chips.setAttribute("role", "group");
-      chips.setAttribute("aria-label", field.label);
-      field.options.forEach((option) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "chip";
-        button.textContent = option;
-        button.addEventListener("click", () => {
-          state.fields[field.key] = option;
-          updateChoice(field);
-          updateFieldState(field);
-          updateMakeButton();
-        });
-        chips.appendChild(button);
-      });
-      wrap.append(fieldLabel(field), chips, fieldHint(field));
-    } else {
-      const label = fieldLabel(field);
-      const labelTag = document.createElement("label");
-      labelTag.htmlFor = `field-${field.key}`;
-      labelTag.appendChild(label);
-
-      const textarea = document.createElement("textarea");
-      textarea.id = `field-${field.key}`;
-      textarea.rows = 1;
-      textarea.value = state.fields[field.key] || "";
-      textarea.addEventListener("input", () => {
-        state.fields[field.key] = textarea.value;
-        autoGrow(textarea);
-        updateFieldState(field);
-        updateMakeButton();
-      });
-
-      wrap.append(labelTag, textarea, fieldHint(field));
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.htmlFor = `field-${field.key}`;
+    label.textContent = field.label;
+    if (field.required) {
+      const star = document.createElement("span");
+      star.className = "required";
+      star.textContent = " *";
+      label.appendChild(star);
     }
 
+    const textarea = document.createElement("textarea");
+    textarea.id = `field-${field.key}`;
+    textarea.rows = 2;
+    textarea.placeholder = field.placeholder || "";
+    textarea.value = state.fields[field.key] || "";
+    textarea.addEventListener("input", () => {
+      state.fields[field.key] = textarea.value;
+      updateFieldState(field);
+      updateMakeButton();
+    });
+
+    const hint = document.createElement("p");
+    hint.className = "field-hint";
+    hint.id = `hint-${field.key}`;
+
+    wrap.append(label, textarea, hint);
     list.appendChild(wrap);
-    if (field.type === "choice") updateChoice(field);
-    if (field.type !== "checkbox") updateFieldState(field);
+    updateFieldState(field);
   });
 
-  // 화면이 보인 뒤에 높이를 재야 해서 다음 프레임에 맞춘다.
-  requestAnimationFrame(() => list.querySelectorAll("textarea").forEach(autoGrow));
   updateMakeButton();
-}
-
-// 칸 안의 글이 길어지면 상자 높이를 늘린다.
-function autoGrow(textarea) {
-  textarea.style.height = "auto";
-  const border = textarea.offsetHeight - textarea.clientHeight;
-  textarea.style.height = `${textarea.scrollHeight + border}px`;
-}
-
-function updateChoice(field) {
-  document.querySelectorAll(`.field[data-key="${field.key}"] .chip`).forEach((button) => {
-    const selected = state.fields[field.key] === button.textContent;
-    button.classList.toggle("selected", selected);
-    button.setAttribute("aria-pressed", String(selected));
-  });
 }
 
 function renderRecipients() {
   const group = $("recipient-list");
   group.innerHTML = "";
 
-  RECIPIENTS.forEach((name) => {
+  DATA.partners.forEach((partner) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "chip";
-    button.textContent = name;
-    button.setAttribute("aria-pressed", String(state.recipient === name));
-    button.classList.toggle("selected", state.recipient === name);
+    button.textContent = partner.label;
+    button.setAttribute("aria-pressed", String(state.recipient === partner.id));
+    button.classList.toggle("selected", state.recipient === partner.id);
     button.addEventListener("click", () => {
-      state.recipient = name;
+      state.recipient = partner.id;
       renderRecipients();
       updateMakeButton();
     });
@@ -312,21 +304,14 @@ function renderRecipients() {
   });
 }
 
-// 비어 있는 칸은 노란색 + 되묻는 질문으로 표시한다. (필수 칸만 버튼을 막는다)
-// 글 칸은 되묻는 질문을 칸 안(값 자리)에 보여 주고, 고르는 칸은 아래 줄에 보여 준다.
+// 비어 있는 필수 칸만 노란색 + 되묻는 질문(followUp)으로 표시한다.
 function updateFieldState(field) {
   const wrap = document.querySelector(`.field[data-key="${field.key}"]`);
   const hint = $(`hint-${field.key}`);
-  const textarea = $(`field-${field.key}`);
-  const question = isFilled(field) ? "" : state.followups[field.key] || field.question || "";
+  const missing = field.required && !isFilled(field);
 
-  wrap.classList.toggle("missing", Boolean(question) || (field.required && !isFilled(field)));
-  if (textarea) {
-    textarea.placeholder = state.followups[field.key] || field.question || "";
-    hint.textContent = "";
-  } else {
-    hint.textContent = question;
-  }
+  wrap.classList.toggle("missing", missing);
+  hint.textContent = missing ? state.followups[field.key] || field.followUp : "";
 }
 
 function updateMakeButton() {
@@ -337,16 +322,17 @@ function updateMakeButton() {
 
 // 호출 2(메시지 생성)를 부르고 결과 상태를 채운다.
 async function buildResult() {
+  const profile = loadProfile();
   const result = await generateMessages({
     card: currentCard(),
     fields: state.fields,
-    recipient: state.recipient,
-    profile: loadProfile(),
-    preferred: loadPreferred(),
+    recipient: currentPartner(),
+    profile,
+    preferred: profile.preferredExamples,
   });
   state.variants = result.variants;
   state.reasons = result.reasons;
-  state.activeVariant = Math.min(state.activeVariant, result.variants.length - 1);
+  state.activeVariant = 0;
   renderResult();
 }
 
@@ -357,7 +343,6 @@ async function makeMessage() {
   button.textContent = UI_TEXT.loadingMessage;
 
   try {
-    state.activeVariant = 0;
     await buildResult();
     showScreen("result");
   } catch (error) {
@@ -368,31 +353,41 @@ async function makeMessage() {
   }
 }
 
-// ---------- 화면 3 · 표현 비교 + 의도 확인 ----------
+// ---------- 화면 3 · 결과 ----------
 
 function renderResult() {
+  $("result-card").textContent = currentCard().name;
+  $("result-recipient").textContent = currentPartner().label;
+
   renderVariantTabs();
   showVariant();
+}
 
+// 수정 이유는 탭마다 다르다. (탭에 수정 이유가 없으면 전체 수정 이유를 쓴다)
+function renderReasons() {
+  const variant = state.variants[state.activeVariant];
   const reasons = $("reason-list");
   reasons.innerHTML = "";
-  state.reasons.forEach((reason) => {
+  (variant.reasons || state.reasons).forEach((reason) => {
     const item = document.createElement("li");
     item.textContent = reason;
     reasons.appendChild(item);
   });
 }
 
+// 탭 순서와 이름은 cards.json versions를 따른다.
 function renderVariantTabs() {
   const tabs = $("variant-tabs");
   tabs.innerHTML = "";
 
-  state.variants.forEach((variant, index) => {
+  DATA.versions.forEach((version) => {
+    const index = state.variants.findIndex((variant) => variant.type === version.id);
+    if (index === -1) return;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "tab";
     button.setAttribute("role", "tab");
-    button.textContent = VARIANT_LABELS[variant.type] || variant.type;
+    button.textContent = version.label;
     button.classList.toggle("selected", index === state.activeVariant);
     button.setAttribute("aria-selected", String(index === state.activeVariant));
     button.addEventListener("click", () => {
@@ -409,9 +404,17 @@ function showVariant() {
   box.value = state.variants[state.activeVariant].text;
   requestAnimationFrame(() => autoGrow(box)); // 화면이 보인 뒤 글 길이에 맞춰 높이를 늘린다
   renderIntentCheck();
+  renderReasons();
 }
 
-// 의도 체크: 사용자가 확정한 칸마다 AI가 준 근거 구절이 본문에 실제로 있는지 문자열로 확인한다.
+// 본문이 길어지면 상자 높이를 늘린다. (상자 안 스크롤 없이 전체가 보이게)
+function autoGrow(textarea) {
+  textarea.style.height = "auto";
+  const border = textarea.offsetHeight - textarea.clientHeight;
+  textarea.style.height = `${textarea.scrollHeight + border}px`;
+}
+
+// 의도 체크: 사용자가 확정한 칸마다 AI가 준 근거 구절이 본문에 실제로 있는지 문자열로 확인한다. (✓ / △)
 function renderIntentCheck() {
   const variant = state.variants[state.activeVariant];
   const text = $("message-text").value;
@@ -419,20 +422,14 @@ function renderIntentCheck() {
   list.innerHTML = "";
 
   currentCard().fields.forEach((field) => {
-    if (field.type === "checkbox" || !isFilled(field)) return;
+    if (!isFilled(field)) return;
 
     const phrase = variant.evidence[field.key];
     const included = Boolean(phrase) && text.includes(phrase);
 
     const item = document.createElement("li");
     item.className = included ? "check-ok" : "check-warn";
-    const mark = document.createElement("span");
-    mark.className = "check-mark";
-    mark.setAttribute("aria-hidden", "true");
-    mark.textContent = included ? "✓" : "⚠";
-    const label = document.createElement("span");
-    label.textContent = `${field.label} — ${included ? UI_TEXT.intentIncluded : UI_TEXT.intentMissing}`;
-    item.append(mark, label);
+    item.textContent = `${included ? "✓" : "△"} ${field.label} — ${included ? DATA.uiCopy.intentOk : DATA.uiCopy.intentWarn}`;
     list.appendChild(item);
   });
 }
@@ -481,67 +478,54 @@ function savePreferred() {
   const text = $("message-text").value.trim();
   if (!text) return;
 
-  const list = [text, ...loadPreferred().filter((saved) => saved !== text)].slice(0, MAX_PREFERRED);
-  try {
-    localStorage.setItem(STORAGE_KEYS.preferred, JSON.stringify(list));
-    showToast(UI_TEXT.preferredSaved);
-  } catch (error) {
-    showToast(UI_TEXT.errorSave);
-  }
+  const list = [text, ...loadProfile().preferredExamples.filter((saved) => saved !== text)].slice(0, MAX_PREFERRED);
+  showToast(updateProfile({ preferredExamples: list }) ? UI_TEXT.preferredSaved : UI_TEXT.errorSave);
 }
 
 // ---------- 화면 4 · 내 말투 ----------
 
 const onboardingAnswers = {};
-// 저장 전까지 바꾼 값. [저장]을 눌러야 localStorage에 들어간다.
-let profileDraft = { ...DEFAULT_PROFILE };
 
 function renderProfile() {
-  const hasProfile = Boolean(localStorage.getItem(STORAGE_KEYS.profile));
-  const skipped = Boolean(localStorage.getItem(STORAGE_KEYS.bannerSkipped));
-  $("onboarding").hidden = hasProfile || skipped;
-  syncProfileTitle();
-  $("profile-back-result").hidden = state.variants.length === 0;
+  $("onboarding").hidden = loadProfile().onboarded;
+  $("profile-back-result").hidden = state.variants.length === 0; // 결과를 만든 뒤에만 보인다
 
-  profileDraft = loadProfile();
   renderOnboarding();
   renderSettings();
   renderPreferred();
 }
 
-// 첫 방문 질문이 보일 때는 "어느 쪽이 나답나요?", 아니면 설정 제목을 보여 준다.
-function syncProfileTitle() {
-  const onboarding = !$("onboarding").hidden;
-  $("profile-title-onboarding").hidden = !onboarding;
-  $("profile-title-settings").hidden = onboarding;
-}
-
 function renderOnboarding() {
   const wrap = $("onboarding-questions");
   wrap.innerHTML = "";
+  const questions = DATA.onboarding.questions;
 
-  ONBOARDING.forEach((question) => {
+  questions.forEach((question) => {
     const block = document.createElement("div");
     block.className = "question";
-    block.setAttribute("role", "group");
-    block.setAttribute("aria-label", `${question.title} · ${UI_TEXT.onboardingAsk}`);
 
     const title = document.createElement("h3");
     title.className = "question-title";
-    title.textContent = question.title;
+    title.textContent = question.q;
     block.appendChild(title);
 
-    question.options.forEach((option) => {
+    [
+      ["A", question.a],
+      ["B", question.b],
+    ].forEach(([mark, option]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "option";
-      const selected = onboardingAnswers[question.key] === option.value;
+      const selected = onboardingAnswers[question.key] === option.sets;
       button.classList.toggle("selected", selected);
       button.setAttribute("aria-pressed", String(selected));
-      button.textContent = option.text;
+
+      const strong = document.createElement("strong");
+      strong.textContent = mark;
+      button.append(strong, ` ${option.text}`);
 
       button.addEventListener("click", () => {
-        onboardingAnswers[question.key] = option.value;
+        onboardingAnswers[question.key] = option.sets;
         renderOnboarding();
       });
       block.appendChild(button);
@@ -550,73 +534,69 @@ function renderOnboarding() {
     wrap.appendChild(block);
   });
 
-  $("onboarding-apply").disabled = !ONBOARDING.every((q) => onboardingAnswers[q.key]);
+  $("onboarding-apply").disabled = !questions.every((q) => onboardingAnswers[q.key]);
 }
 
 function applyOnboarding() {
-  const saved = saveProfile({ ...loadProfile(), ...onboardingAnswers });
-  if (!saved) {
+  if (!updateProfile({ ...onboardingAnswers, onboarded: true })) {
     showToast(UI_TEXT.errorSave, "profile-toast");
     return;
   }
-  ONBOARDING.forEach((q) => delete onboardingAnswers[q.key]);
+  DATA.onboarding.questions.forEach((q) => delete onboardingAnswers[q.key]);
   renderProfile();
   showToast(UI_TEXT.onboardingApplied, "profile-toast");
 }
 
 function skipOnboarding() {
-  localStorage.setItem(STORAGE_KEYS.bannerSkipped, "1");
-  $("profile-banner").hidden = true;
+  updateProfile({ onboarded: true });
   $("onboarding").hidden = true;
-  syncProfileTitle();
 }
 
 function reopenOnboarding() {
-  ONBOARDING.forEach((q) => delete onboardingAnswers[q.key]);
+  DATA.onboarding.questions.forEach((q) => delete onboardingAnswers[q.key]);
   renderOnboarding();
   $("onboarding").hidden = false;
-  syncProfileTitle();
   $("onboarding").scrollIntoView({ behavior: "smooth" });
 }
 
-function isProfileChanged() {
-  const saved = loadProfile();
-  return Object.keys(saved).some((key) => saved[key] !== profileDraft[key]);
-}
-
-function updateProfileSaveButton() {
-  $("profile-save").disabled = !isProfileChanged();
+// 말투 항목 이름(문장 길이 · 요청 방식 · 끝맺음)은 온보딩 질문 "문장 길이 · 어느 쪽이 나답나요?"의 앞부분을 쓴다.
+function settingLabel(key) {
+  const question = DATA.onboarding.questions.find((q) => q.key === key);
+  return question ? question.q.split(" · ")[0] : key;
 }
 
 function renderSettings() {
+  const profile = loadProfile();
   const wrap = $("profile-settings");
   wrap.innerHTML = "";
 
-  PROFILE_OPTIONS.forEach((option) => {
+  PROFILE_KEYS.forEach((key) => {
     const group = document.createElement("div");
     group.className = "setting";
 
     const title = document.createElement("span");
-    title.className = "block-label";
-    title.textContent = option.label;
+    title.className = "field-label";
+    title.textContent = settingLabel(key);
     group.appendChild(title);
 
     const chips = document.createElement("div");
-    chips.className = "segmented";
-    chips.setAttribute("role", "group");
-    chips.setAttribute("aria-label", option.label);
-    option.values.forEach((value) => {
+    chips.className = "chips";
+    DATA.profileOptions[key].forEach((option) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "segment";
-      button.textContent = value;
-      const selected = profileDraft[option.key] === value;
+      button.className = "chip";
+      button.textContent = option.label;
+      const selected = profile[key] === option.id;
       button.classList.toggle("selected", selected);
       button.setAttribute("aria-pressed", String(selected));
       button.addEventListener("click", () => {
-        profileDraft = { ...profileDraft, [option.key]: value };
-        renderSettings();
-        if (isProfileChanged()) showToast(UI_TEXT.profileUnsaved, "profile-toast");
+        // 바꾸면 바로 저장한다 (코딩 레퍼런스 2장 ④)
+        if (updateProfile({ [key]: option.id, onboarded: true })) {
+          renderSettings();
+          showToast(UI_TEXT.settingSaved, "profile-toast");
+        } else {
+          showToast(UI_TEXT.errorSave, "profile-toast");
+        }
       });
       chips.appendChild(button);
     });
@@ -624,25 +604,13 @@ function renderSettings() {
     wrap.appendChild(group);
   });
 
-  $("profile-avoid").value = profileDraft.avoid;
-  updateProfileSaveButton();
-}
-
-function saveProfileDraft() {
-  if (saveProfile({ ...profileDraft, avoid: profileDraft.avoid.trim() })) {
-    profileDraft = loadProfile();
-    renderSettings();
-    showToast(UI_TEXT.profileSaved, "profile-toast");
-  } else {
-    showToast(UI_TEXT.errorSave, "profile-toast");
-  }
+  $("profile-avoid").value = profile.avoidPhrases;
 }
 
 function renderPreferred() {
   const list = $("preferred-list");
   list.innerHTML = "";
-  const preferred = loadPreferred();
-  $("preferred-count").textContent = preferred.length ? `(${preferred.length})` : "";
+  const preferred = loadProfile().preferredExamples;
 
   if (preferred.length === 0) {
     const empty = document.createElement("li");
@@ -661,13 +629,11 @@ function renderPreferred() {
 
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.className = "text-button";
+    remove.className = "secondary small";
     remove.textContent = UI_TEXT.deleteButton;
     remove.addEventListener("click", () => {
-      const next = loadPreferred().filter((_, i) => i !== index);
-      try {
-        localStorage.setItem(STORAGE_KEYS.preferred, JSON.stringify(next));
-      } catch (error) {
+      const next = loadProfile().preferredExamples.filter((_, i) => i !== index);
+      if (!updateProfile({ preferredExamples: next })) {
         showToast(UI_TEXT.errorDelete, "profile-toast");
         return;
       }
@@ -680,134 +646,182 @@ function renderPreferred() {
 }
 
 function initBanner() {
-  const hasProfile = localStorage.getItem(STORAGE_KEYS.profile);
-  const skipped = localStorage.getItem(STORAGE_KEYS.bannerSkipped);
-  $("profile-banner").hidden = Boolean(hasProfile || skipped);
+  $("profile-banner").hidden = loadProfile().onboarded;
 
   $("banner-setup").addEventListener("click", () => showScreen("profile"));
   $("banner-skip").addEventListener("click", () => {
-    localStorage.setItem(STORAGE_KEYS.bannerSkipped, "1");
+    updateProfile({ onboarded: true });
     $("profile-banner").hidden = true;
   });
 }
 
-// ---------- content.js 검사 ----------
-// 콘텐츠를 고치다가 서로 연결된 이름이 어긋나면 콘솔에 알려 준다. (화면 동작에는 영향 없음)
+// ---------- cards.json · content.js 검사 ----------
+// 서로 연결된 이름이 어긋나면 콘솔에 알려 준다. (화면 동작에는 영향 없음)
 
-function validateContent() {
-  const problems = [];
-  const optionValues = Object.fromEntries(PROFILE_OPTIONS.map((o) => [o.key, o.values]));
+function validateData() {
+  const dataProblems = []; // cards.json · 샘플 데이터 문제
+  const contentProblems = []; // content.js(가짜 AI 문장 틀) 문제
 
-  const fallback = CARDS.find((card) => card.id === DEFAULT_CARD_ID);
-  if (!fallback || fallback.comingSoon) {
-    problems.push(`DEFAULT_CARD_ID "${DEFAULT_CARD_ID}"가 CARDS에 없거나 준비 중 카드예요.`);
-  }
+  const cardIds = DATA.cards.map((c) => c.id);
+  if (new Set(cardIds).size !== cardIds.length) dataProblems.push("cards: 카드 id가 겹쳐요.");
 
-  CARDS.forEach((card) => {
-    if (card.comingSoon) return; // 준비 중 카드는 입력 칸·문장 틀이 없다.
-
+  DATA.cards.forEach((card) => {
     const keys = card.fields.map((f) => f.key);
-    const fieldOf = (key) => card.fields.find((f) => f.key === key);
-    if (new Set(keys).size !== keys.length) problems.push(`${card.id}: 칸 key가 겹쳐요.`);
-
+    if (new Set(keys).size !== keys.length) dataProblems.push(`cards(${card.id}): 칸 key가 겹쳐요.`);
+    ["name", "subtitle", "homePlaceholder"].forEach((prop) => {
+      if (!card[prop]) dataProblems.push(`cards(${card.id}): ${prop}가 비어 있어요.`);
+    });
     card.fields.forEach((field) => {
-      if (field.type === "choice" && !(Array.isArray(field.options) && field.options.length)) {
-        problems.push(`${card.id}: 고르는 칸 "${field.key}"에 options가 없어요.`);
-      }
-    });
-
-    const presets = MOCK_PRESETS[card.id] || [];
-    presets.forEach((preset) => {
-      if (!Array.isArray(preset.keywords) || preset.keywords.length === 0) {
-        problems.push(`샘플 응답(${card.id}): keywords가 비어 있어요.`);
-      }
-      Object.entries(preset.fields).forEach(([key, value]) => {
-        const field = fieldOf(key);
-        if (!field) problems.push(`샘플 응답(${card.id}): "${key}" 칸이 CARDS에 없어요.`);
-        else if (field.type === "choice" && !(field.options || []).includes(value)) {
-          problems.push(`샘플 응답(${card.id}): "${key}" 값 "${value}"가 options에 없어요.`);
-        }
-      });
-    });
-
-    // 예시 문장을 넣으면 샘플 응답이 걸리는지 (안 걸리면 입력 전체가 첫 칸에만 들어간다)
-    (card.examples || []).forEach((example) => {
-      if (!presets.some((p) => (p.keywords || []).some((word) => example.includes(word)))) {
-        problems.push(`예시 문장(${card.id}): "${example}"에 맞는 샘플 응답 keywords가 없어요.`);
-      }
+      if (!field.label) dataProblems.push(`cards(${card.id}): "${field.key}" 칸의 label이 비어 있어요.`);
+      if (field.required && !field.followUp) dataProblems.push(`cards(${card.id}): 필수 칸 "${field.key}"에 followUp이 없어요.`);
     });
 
     const flow = MESSAGE_FLOW[card.id];
     if (!flow) {
-      problems.push(`MESSAGE_FLOW에 "${card.id}"가 없어요.`);
-      return;
+      contentProblems.push(`MESSAGE_FLOW에 카드 "${card.id}"가 없어요.`);
+    } else {
+      const used = [...flow.steps.map((step) => step.key), flow.tail && flow.tail.key].filter(Boolean);
+      used.forEach((key) => {
+        if (!keys.includes(key)) contentProblems.push(`MESSAGE_FLOW(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
+      });
+      keys.forEach((key) => {
+        if (!used.includes(key)) contentProblems.push(`MESSAGE_FLOW(${card.id}): "${key}" 칸이 빠져 있어서 메시지에 안 들어가요.`);
+      });
+      (DATA.profileOptions.requestStyle || []).forEach((option) => {
+        if (!flow.opener || !flow.opener[option.id]) contentProblems.push(`MESSAGE_FLOW(${card.id}): 요청 방식 "${option.id}"의 opener가 없어요.`);
+      });
     }
-    if (!flow.opener) problems.push(`MESSAGE_FLOW(${card.id}): opener가 없어요.`);
-    const lead = flow.clear && Array.isArray(flow.clear.lead) ? flow.clear.lead : null;
-    if (!lead) problems.push(`MESSAGE_FLOW(${card.id}): clear.lead가 없어요.`);
-
-    const allSteps = [...flow.steps, ...(lead || [])];
-    const used = [...allSteps.map((step) => step.key), flow.tail].filter(Boolean);
-    used.forEach((key) => {
-      if (!keys.includes(key)) problems.push(`MESSAGE_FLOW(${card.id}): "${key}" 칸이 CARDS에 없어요.`);
-    });
-    card.fields.forEach((field) => {
-      if (field.type !== "checkbox" && !used.includes(field.key)) {
-        problems.push(`MESSAGE_FLOW(${card.id}): "${field.key}" 칸이 빠져 있어서 메시지에 안 들어가요.`);
-      }
-    });
-    allSteps.forEach((step) => {
-      const field = fieldOf(step.key);
-      if (!field || field.type !== "choice") return;
-      (field.options || []).forEach((option) => {
-        if (!step.tpl || !step.tpl[option]) {
-          problems.push(`MESSAGE_FLOW(${card.id}): "${step.key}" 문장 틀에 선택지 "${option}"가 없어요.`);
-        }
+    if (LEAD_FIELD[card.id] && !keys.includes(LEAD_FIELD[card.id])) contentProblems.push(`LEAD_FIELD(${card.id}): "${LEAD_FIELD[card.id]}" 칸이 cards.json에 없어요.`);
+    if (CLOSING_FIELD[card.id] && !keys.includes(CLOSING_FIELD[card.id])) contentProblems.push(`CLOSING_FIELD(${card.id}): "${CLOSING_FIELD[card.id]}" 칸이 cards.json에 없어요.`);
+    (MOCK_PRESETS[card.id] || []).forEach((preset) => {
+      Object.keys(preset.fields).forEach((key) => {
+        if (!keys.includes(key)) contentProblems.push(`MOCK_PRESETS(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
       });
     });
-    if (!MESSAGE_REASONS[card.id]) problems.push(`MESSAGE_REASONS에 "${card.id}"가 없어요.`);
-  });
-
-  ONBOARDING.forEach((question) => {
-    question.options.forEach((option) => {
-      if (!(optionValues[question.key] || []).includes(option.value)) {
-        problems.push(`ONBOARDING(${question.key}): value "${option.value}"가 PROFILE_OPTIONS에 없어요.`);
-      }
+    (STRUCTURIZE_FILL[card.id] || []).forEach((key) => {
+      if (!keys.includes(key)) contentProblems.push(`STRUCTURIZE_FILL(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
+    });
+    // 수정 이유 문구 (cards.json reasons.byField)
+    ((DATA.reasons && DATA.reasons.byField && DATA.reasons.byField[card.id]) || []).forEach((reason) => {
+      (reason.requires || []).forEach((key) => {
+        if (!keys.includes(key)) dataProblems.push(`reasons.byField(${card.id}): "${key}" 칸이 카드에 없어요.`);
+      });
+      if (!reason.text) dataProblems.push(`reasons.byField(${card.id}): text가 비어 있어요.`);
     });
   });
 
-  Object.entries(DEFAULT_PROFILE).forEach(([key, value]) => {
-    if (key !== "avoid" && !(optionValues[key] || []).includes(value)) {
-      problems.push(`DEFAULT_PROFILE: ${key} 값 "${value}"가 PROFILE_OPTIONS에 없어요.`);
+  if (!DATA.reasons) dataProblems.push("reasons(수정 이유 문구)가 없어요.");
+  else {
+    ["mine", "concise", "soft"].forEach((id) => {
+      if (!(DATA.reasons.byTab || {})[id]) dataProblems.push(`reasons.byTab에 "${id}"가 없어요.`);
+    });
+    DATA.partners.forEach((partner) => {
+      if (!(DATA.reasons.byPartner || {})[partner.id]) dataProblems.push(`reasons.byPartner에 "${partner.id}"가 없어요.`);
+    });
+    if (!String(DATA.reasons.avoid || "").includes("{words}")) dataProblems.push("reasons.avoid에 {words} 자리가 없어요.");
+  }
+
+  DATA.partners.forEach((partner) => {
+    if (!partner.label) dataProblems.push(`partners(${partner.id}): label이 비어 있어요.`);
+    if (!PARTNER_STYLE[partner.id]) contentProblems.push(`PARTNER_STYLE에 받는 사람 "${partner.id}"가 없어요.`);
+  });
+
+  // 가짜 AI가 만드는 표현 종류(mine · concise · soft)와 탭이 맞는지
+  ["mine", "concise", "soft"].forEach((id) => {
+    if (!DATA.versions.some((v) => v.id === id)) dataProblems.push(`versions에 "${id}" 탭이 없어요.`);
+  });
+
+  PROFILE_KEYS.forEach((key) => {
+    const ids = (DATA.profileOptions[key] || []).map((o) => o.id);
+    if (ids.length === 0) dataProblems.push(`profileOptions에 "${key}"가 없어요.`);
+    if (!ids.includes(DATA.profileOptions.defaults[key])) {
+      dataProblems.push(`profileOptions.defaults: ${key} 값 "${DATA.profileOptions.defaults[key]}"가 선택지에 없어요.`);
     }
   });
+  DATA.onboarding.questions.forEach((question) => {
+    const ids = (DATA.profileOptions[question.key] || []).map((o) => o.id);
+    [question.a, question.b].forEach((option) => {
+      if (!ids.includes(option.sets)) dataProblems.push(`onboarding(${question.key}): sets "${option.sets}"가 profileOptions에 없어요.`);
+    });
+  });
+  (DATA.profileOptions.requestStyle || []).forEach((option) => {
+    if (!MESSAGE_CLOSINGS[option.id]) contentProblems.push(`MESSAGE_CLOSINGS에 요청 방식 "${option.id}"가 없어요.`);
+    if (!MESSAGE_CLOSINGS_URGENT[option.id]) contentProblems.push(`MESSAGE_CLOSINGS_URGENT에 요청 방식 "${option.id}"가 없어요.`);
+  });
 
-  (optionValues.request || []).forEach((value) => {
-    if (!MESSAGE_CLOSINGS[value]) problems.push(`MESSAGE_CLOSINGS에 "${value}"가 없어요.`);
-    if (!MESSAGE_CLOSINGS_SHORT[value]) problems.push(`MESSAGE_CLOSINGS_SHORT에 "${value}"가 없어요.`);
+  // 화면에서 쓰는 문구 경로가 cards.json에 있는지
+  document.querySelectorAll("[data-copy], [data-copy-placeholder]").forEach((el) => {
+    const path = el.dataset.copy || el.dataset.copyPlaceholder;
+    if (typeof getPath(path) !== "string") dataProblems.push(`화면 문구 "${path}"가 cards.json에 없어요.`);
   });
-  RECIPIENTS.forEach((name) => {
-    if (!MESSAGE_GREETINGS[name]) problems.push(`MESSAGE_GREETINGS에 "${name}"가 없어요.`);
-  });
-  ["concise", "soft", "clear"].forEach((type) => {
-    if (!VARIANT_LABELS[type]) problems.push(`VARIANT_LABELS에 "${type}"가 없어요.`);
+  ["intentOk", "intentWarn"].forEach((key) => {
+    if (!DATA.uiCopy[key]) dataProblems.push(`uiCopy.${key}가 없어요.`);
   });
 
-  problems.forEach((message) => console.error(`[content.js] ${message}`));
+  const demoCard = DATA.cards.find((c) => c.id === DATA.demo.cardId);
+  if (!demoCard) dataProblems.push(`demo.cardId "${DATA.demo.cardId}"가 cards에 없어요.`);
+  else if (!demoCard.fields.some((f) => f.key === DATA.demo.expectEmptyField)) {
+    dataProblems.push(`demo.expectEmptyField "${DATA.demo.expectEmptyField}"가 ${demoCard.id} 카드에 없어요.`);
+  }
+
+  if (SAMPLE_DATA) {
+    const partnerLabels = DATA.partners.map((p) => p.label);
+    SAMPLE_DATA.samples.forEach((sample) => {
+      const card = DATA.cards.find((c) => c.id === sample.cardId);
+      if (!card) {
+        dataProblems.push(`샘플 ${sample.id}: 카드 "${sample.cardId}"가 cards.json에 없어요.`);
+        return;
+      }
+      const keys = card.fields.map((f) => f.key);
+      Object.keys(sample.fields).forEach((key) => {
+        if (!keys.includes(key)) dataProblems.push(`샘플 ${sample.id}: "${key}" 칸이 ${card.id} 카드에 없어요.`);
+      });
+      if (!partnerLabels.includes(sample.partner)) dataProblems.push(`샘플 ${sample.id}: 받는 사람 "${sample.partner}"가 partners에 없어요.`);
+    });
+  }
+
+  dataProblems.forEach((message) => console.error(`[cards.json] ${message}`));
+  contentProblems.forEach((message) => console.error(`[content.js] ${message}`));
 }
 
 // ---------- 시작 ----------
 
-document.addEventListener("DOMContentLoaded", () => {
-  validateContent();
+async function loadData() {
+  const response = await fetch(DATA_URL, { cache: "no-cache" });
+  if (!response.ok) throw new Error(`${DATA_URL} ${response.status}`);
+  DATA = await response.json();
+
+  // 샘플은 없어도 앱은 동작한다 (가짜 AI가 키워드 응답만 쓴다)
+  try {
+    const sampleResponse = await fetch(SAMPLE_URL, { cache: "no-cache" });
+    if (sampleResponse.ok) SAMPLE_DATA = await sampleResponse.json();
+  } catch (error) {
+    SAMPLE_DATA = null;
+  }
+  if (!SAMPLE_DATA) console.warn(`[cards.json] ${SAMPLE_URL}을 읽지 못해 샘플 없이 동작해요.`);
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    await loadData();
+  } catch (error) {
+    // 파일을 더블클릭해서 열면(file://) 브라우저가 json 읽기를 막는다.
+    console.error(`[cards.json] ${DATA_URL}을 불러오지 못했어요.`, error);
+    $("load-error").hidden = false;
+    return;
+  }
+
+  migrateProfile();
+  applyCopy();
+  validateData();
   renderCards();
-  selectCard(null);
+  selectCard(sortedCards()[0].id); // 질문 준비실(order 1)이 기본 선택된 상태로 시작
   initBanner();
+  showScreen("home");
   if (typeof initReviewBar === "function") initReviewBar(); // review.js가 있을 때만
 
   $("home-input").addEventListener("input", updateSubmitButton);
   $("home-submit").addEventListener("click", submitHome);
-  $("home-profile").addEventListener("click", () => showScreen("profile"));
   $("make-message").addEventListener("click", makeMessage);
 
   $("message-text").addEventListener("input", () => {
@@ -823,11 +837,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("onboarding-skip").addEventListener("click", skipOnboarding);
   $("onboarding-reopen").addEventListener("click", reopenOnboarding);
   $("profile-avoid").addEventListener("input", () => {
-    profileDraft = { ...profileDraft, avoid: $("profile-avoid").value };
-    updateProfileSaveButton();
+    updateProfile({ avoidPhrases: $("profile-avoid").value, onboarded: true });
   });
-  $("profile-save").addEventListener("click", saveProfileDraft);
 
+  $("go-home").addEventListener("click", () => showScreen("home"));
+  $("go-profile").addEventListener("click", () => showScreen("profile"));
   document.querySelectorAll("[data-go]").forEach((button) => {
     button.addEventListener("click", () => showScreen(button.dataset.go));
   });

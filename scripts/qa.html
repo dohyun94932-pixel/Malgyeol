@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>말결 메시지 자동 점검</title>
+  <style>
+    body { margin: 0 auto; max-width: 960px; padding: 24px 20px; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; line-height: 1.5; color: #222; }
+    table { border-collapse: collapse; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+    td.num { text-align: right; }
+    textarea { width: 100%; height: 360px; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+    button { padding: 8px 14px; font: inherit; cursor: pointer; }
+    .muted { color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <!-- 내부 점검용 페이지 (앱 화면 아님). 로컬 서버로 열어야 한다: README '메시지 자동 점검' -->
+  <h1>말결 메시지 자동 점검</h1>
+  <p class="muted">ai.js · content.js를 고치지 않고 그대로 불러와, 샘플 30건과 추가 사례로 generateMessages()를 돌려 점검합니다.</p>
+  <p id="status">점검 중…</p>
+  <div id="summary"></div>
+  <p>
+    <button type="button" id="download" disabled>결과 .md 내려받기</button>
+    <span class="muted">→ docs/qa/check-YYYYMMDD-before.md 또는 -after.md 로 저장</span>
+  </p>
+  <textarea id="markdown" readonly aria-label="점검 결과 마크다운"></textarea>
+
+  <script>
+    // ai.js는 앱에서 main.js가 넣어 주는 DATA(cards.json)·SAMPLE_DATA를 참고한다. 점검에서는 여기서 넣는다.
+    let DATA = null;
+    let SAMPLE_DATA = null;
+  </script>
+  <script src="../content.js"></script>
+  <script src="../ai.js"></script>
+  <script src="check-messages.js"></script>
+  <script>
+    (async () => {
+      const status = document.getElementById("status");
+      try {
+        const [cards, SAMPLES] = await Promise.all([
+          fetch("../data/cards.json", { cache: "no-cache" }).then((r) => r.json()),
+          fetch("../data/malgyeol_sample_data.json", { cache: "no-cache" }).then((r) => r.json()),
+        ]);
+        DATA = cards;
+        SAMPLE_DATA = SAMPLES;
+        const data = await runAll(cards, SAMPLES, generateMessages);
+        const s = summarize(data);
+        const date = new Date().toISOString().slice(0, 10);
+        const md = toMarkdown(data, { title: `말결 메시지 자동 점검 (${date})`, date });
+
+        document.getElementById("summary").innerHTML =
+          "<table><tr><th>항목</th><th>문제 수</th><th>문제 난 메시지 수</th></tr>" +
+          s.rows.map((r) => `<tr><td>${r.name}</td><td class="num">${r.count}</td><td class="num">${r.messages}</td></tr>`).join("") +
+          `</table><p class="muted">메시지 ${s.messages}개 점검 · 탭 3종의 수정 이유가 모두 같은 생성: ${s.sameReasons}/${s.runs}회</p>`;
+        document.getElementById("markdown").value = md;
+        status.textContent = "점검 완료";
+        window.QA_RESULT = { summary: s, markdown: md, data };
+
+        const download = document.getElementById("download");
+        download.disabled = false;
+        download.addEventListener("click", () => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
+          a.download = `check-${date.replace(/-/g, "")}.md`;
+          a.click();
+        });
+      } catch (error) {
+        status.textContent = "점검을 실행하지 못했어요. 로컬 서버로 열었는지 확인해 주세요. (" + error.message + ")";
+        console.error(error);
+      }
+    })();
+  </script>
+</body>
+</html>

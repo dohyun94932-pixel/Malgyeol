@@ -14,7 +14,7 @@
   font-size: 13px;
 }
 
-/* 바가 떠 있을 때 화면 맨 아래 버튼이 가려지지 않게 */
+/* 바가 떠 있을 때 화면 맨 아래 버튼이 가려지지 않게 (바 높이는 review.js가 잰다) */
 .review-mode .screen {
   padding-bottom: calc(var(--review-bar-height, 60px) + 24px);
 }
