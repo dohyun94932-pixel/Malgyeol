@@ -37,8 +37,35 @@ Vercel: https://malgyeol-neon.vercel.app/
 - 다시 적용한 개선: 본문·입력 16px, 모바일 안전 영역·확대 방지, 피하고 싶은 표현을 앱이 붙이는 문장에서 빼기, `?review` 바 겹침 방지, 내 말투 → [← 결과로 돌아가기], 결과 본문 높이 자동 맞춤
 - 반응형 레이아웃 (10/04 iPhone Safari, 카카오톡 인앱 브라우저에서 확인 완료 · 10/05 변경 후 모바일 재확인 필요)
 
+### AI 연결 (Google Gemini · 무료 등급)
+- 흐름: 브라우저(`ai.js`) → Vercel 서버 함수(`api/structurize.js`, `api/generate.js`) → Gemini API. AI 호출 코드는 `api/_lib/llm.js` 한 파일, 시스템 지시문은 `api/_lib/prompts.js`
+- **API 키는 서버 환경변수에만** 둔다. 브라우저 코드·저장소·로그에는 없다.
+- 실패하면 자동으로 가짜 AI(`ai.js`의 mock…)로 대체되고, 결과 화면에 "지금은 AI 대신 연습용 예시 문장으로 보여 드려요…"가 보인다.
+  대체되는 경우: 서버 오류 · 시간 초과(구조화 8초 · 생성 15초) · 호출 한도 초과(429, 다시 부르지 않음) · JSON 형식 오류(서버에서 1회 재시도 후) · 안전 필터 차단·빈 응답 · 네트워크 끊김 · 키 없음
+- 같은 입력(카드·칸·받는 사람·말투가 모두 같음)은 브라우저에 10분 저장해 두고 다시 부르지 않는다. (그래서 같은 입력으로 [다시 만들기]를 누르면 같은 결과가 나온다)
+- 한 브라우저에서 1분에 10번이 넘으면 서버를 부르지 않고 가짜 AI를 쓴다.
+
+#### Vercel 환경변수 등록 (내 Vercel 프로젝트 `malgyeoll`)
+1. vercel.com → 프로젝트 → **Settings → Environment Variables**
+2. `GEMINI_API_KEY` = Google AI Studio에서 만든 키 (Production · Preview 둘 다 체크)
+3. (선택) `GEMINI_MODEL` = 쓸 모델. 비우면 `gemini-3.5-flash-lite`. 더 저렴하게: `gemini-3.1-flash-lite`
+4. (선택) `GEMINI_THINKING` = `off`로 두면 '생각' 설정을 빼고 부른다 (기본은 가장 낮은 `minimal`)
+5. 저장한 뒤 **Deployments → 최근 배포 → Redeploy** 해야 반영된다.
+
+#### 시연 비상용 `?mock`
+- 주소 뒤에 `?mock`을 붙이면 항상 가짜 AI를 쓴다 (예: `https://배포주소/?mock`, 화면 바로가기와 함께면 `?mock&review`). AI 호출을 쓰지 않는다.
+
+#### 무료 등급의 한계 (발표 전 꼭 확인)
+- 무료 등급은 **입력이 Google 제품 개선에 쓰이고 사람이 검토할 수 있다.** 그래서 홈·구조화 확인 화면에 "입력 내용은 AI 서비스로 전송돼요. 실제 회사명·금액·이름은 넣지 마세요."를 보여 준다.
+- 무료 등급은 분당·일일 호출 한도가 낮다. 한도는 공식 문서에 숫자로 나와 있지 않고 **Google AI Studio → Rate limits**에서 프로젝트별로 확인해야 한다.
+- **발표 당일 수백 명이 동시에 쓰면 대부분은 한도를 넘어 가짜 AI로 대체될 수 있다.** (화면은 깨지지 않고 대체 안내가 보인다)
+
+#### 미리보기에서 시험하기
+- 작업 브랜치를 `mine`에 push하면 Vercel 미리보기 주소가 생긴다. 미리보기는 **Vercel 로그인(Deployment Protection)**이 걸려 있어 Vercel에 로그인한 브라우저에서만 열린다.
+- 이 PC에는 Node가 없어 서버 함수를 내 PC에서 직접 돌릴 수 없다. 내 PC에서 `py -m http.server`로 열면 서버 함수가 없어서 **항상 가짜 AI로 대체되는 것**을 확인할 수 있다.
+
 ### 임시 구현
-- AI 호출은 가짜 AI(`ai.js`)로 대체. API 키가 제공되지 않아 실제 AI 연결은 보류하고, 샘플·키워드 응답과 문장 틀로 메시지를 조립
+- AI 호출이 실패할 때 쓰는 가짜 AI(`ai.js`의 mockStructurize · mockGenerateMessages)는 샘플·키워드 응답과 문장 틀로 메시지를 조립
 - 남은 수정 요청: 코딩 레퍼런스 5장 B5~B8 (B1~B3은 10/05 가짜 AI에 반영)
 - 디자인: 코딩 레퍼런스 2장 기준(10/04 앱 · 파란색). v1.1 시안(주황) 반영분은 10/05 되돌림 — docs/decision-log.md 참고
 
