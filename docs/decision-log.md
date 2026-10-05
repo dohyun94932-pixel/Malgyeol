@@ -54,6 +54,29 @@
 | 레퍼런스와 다른 점(확인 필요): 입력칸 글자 16px(레퍼런스 본문·입력 15px), 내 말투 하단 [← 결과로 돌아가기] 추가(레퍼런스 ④ 하단은 2개) | iPhone Safari 확대 방지 · 시연 4단계 경로. 콘텐츠팀 확인 필요 |
 | 내 말투 하단 버튼이 3개가 되어 줄바꿈되도록 `.actions`에 줄넘김 허용 | 390px에서 버튼 글자가 두 줄로 꺾이는 문제 |
 
+## 2026-10-05 · 빌드: cards.json·샘플 데이터 연결 + B4(클라이언트)
+
+| 결정 | 이유 · 상태 |
+|---|---|
+| 화면 문구·카드 3개·칸·받는 사람·버전 탭·온보딩·말투 옵션을 `data/cards.json`에서 읽어 그림. content.js의 같은 내용(CARDS·RECIPIENTS·ONBOARDING·PROFILE_OPTIONS·VARIANT_LABELS 등)은 삭제 | CLAUDE.md "문구는 cards.json에서 고친다" · 기준을 하나로 |
+| 칸 key를 cards.json 영어 key(situation, tried, blocker …)로, 상황보고 카드 id를 `status`로 통일. 가짜 AI 문장 틀·키워드 응답도 새 key로 | cards.json 기준 |
+| 부탁 한 장 '상대 동의 필요 여부'는 체크박스 → 글자 입력칸 | cards.json 기준 |
+| B4: 받는 사람에 '클라이언트' 추가. 호칭 "담당자님", 말투 설정이 해요체·직접적으로여도 합니다체·'부드럽게' 끝인사, 클라이언트용 첫 문장 | 코딩 레퍼런스 5장 B4 · 2장 6절 · 반영 |
+| 호칭이 빈 받는 사람(동기)은 인사 없이 시작 | cards.json partners의 honorific "" · 레퍼런스 "호칭 생략 가능" |
+| 홈은 질문 준비실이 선택된 상태로 시작, 입력창은 바로 입력 가능, 카드를 바꾸면 placeholder가 그 카드의 homePlaceholder로 | UI 레퍼런스 3장 · 레퍼런스 2장 ① |
+| 말투 저장을 `malgyeol.profile` { sentenceLength, requestStyle, ending, avoidPhrases, preferredExamples, onboarded }로 변경. 예전 형식(한글 값 length/request/ending/avoid, 따로 저장한 malgyeol.preferred·malgyeol.bannerSkipped)은 자동으로 옮기고 예전 키는 지움 | 레퍼런스 2장 8절 |
+| 가짜 AI 구조화: 샘플 oneLine과 같은 한 줄이면 그 샘플의 칸 중 한 줄로 알 수 있는 칸만 채움(질문: 상황·막힌 지점 / 부탁: 요청 내용 / 상황보고: 완료한 것), 나머지 null | CLAUDE.md "모르는 칸은 null" · 노란 칸 되묻기가 보이게. 채울 칸 목록은 content.js `STRUCTURIZE_FILL`(임시) |
+| 비어 있는 **필수** 칸만 되묻기 문구를 돌려줌 | 레퍼런스 2장 "빈 필수 칸만 노란 강조" |
+| 의도 체크 표시를 ✓ / △ + cards.json 문구("포함됨" / "빠졌을 수 있어요")로 | CLAUDE.md · uiCopy |
+| index.html을 더블클릭(file://)으로 열면 cards.json을 못 읽으므로 안내 문구를 보여 줌. `?review` 바는 file://에서 자동으로 켜지지 않고 `?review`일 때만 | fetch는 file://에서 막힘 · B8(심사용 링크에서 숨김) |
+| 로컬 확인 방법: `py -m http.server 8000`(Mac `python3`) 또는 VS Code Live Server — README에 기록 | 새 npm 패키지 없이 |
+| 콘솔 점검을 cards.json 기준으로 변경: `[cards.json]`(카드·칸·받는 사람·탭·말투 옵션·uiCopy·demo·샘플) / `[content.js]`(문장 틀·키워드 응답·인사 방식·끝인사) | 기존 점검 기능 대체 |
+| **본문·입력 글자 16px 확정** (레퍼런스 2장의 15px 대신) | 사용자 결정(10/05) · iPhone Safari 입력칸 확대 방지 · 콘텐츠팀에 레퍼런스 2장 표 수정 요청 필요 |
+| 받는 사람 칩 좌우 여백 18px → 14px | 4개(클라이언트 포함)가 390px 화면에서 한 줄에 들어가게(레퍼런스 "한 줄 배치") |
+
+cards.json에 없어 index.html·content.js에 남긴 문구: '말투 설정' 제목·안내 문장, '피하고 싶은 표현 (선택)' 라벨, '마음에 든 문장' 제목, '← 결과로 돌아가기', 토스트·오류 문구(content.js UI_TEXT). 콘텐츠팀이 cards.json uiCopy에 넣으면 코드에서 옮긴다.
+아직 안 쓰는 uiCopy: `copiedButton`("✓ 복사됐어요" · B5용).
+
 ### 미결 사항
 
 | # | 항목 | 내용 | 결정 주체 |
