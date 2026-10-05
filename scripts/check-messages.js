@@ -311,3 +311,137 @@ function toMarkdown(data, { title, date }) {
   });
   return lines.join("\n");
 }
+
+// ===================== [문체 점검 · 2026-10-05 추가] =====================
+// 원칙: 메시지 한 통 = 문체 하나. 클라이언트 = 합니다체, 동기 = 반말, 선배·인차지 = 내 말투 끝맺음 설정.
+// 합니다체 의문문은 "~ㄹ까요?"도 허용한다 (팀 결정 10/05 · 직장 메신저 관용).
+// 앱 안내 문구(수정 이유)는 해요체.
+// 대상: 샘플 30건 × 받는 사람 4종 × 끝맺음 2종 × 탭 3종 (요청 방식 '부드럽게' · 문장 길이 '보통')
+
+const QA_TONE_BY_PARTNER = { client: "hamnida", peer: "banmal" };
+// 문장 끝 분류 (위에서부터 먼저 맞는 것)
+const QA_ENDING_CLASS = [
+  { cls: "hamnida", re: /(?:니다|니까|십시오)$/ },
+  { cls: "kkayo", re: /까요$/ }, // ~ㄹ까요? : 합니다체·해요체 모두 허용
+  { cls: "haeyo", re: /요$/ },
+  { cls: "banmal", re: /(?:어|아|해|돼|야|줘|봐|와|워|려|겨|라|러|게|래|까|나|지|자|네|군|거든|대)$/ },
+];
+const QA_ALLOWED = { hamnida: ["hamnida", "kkayo"], haeyo: ["haeyo", "kkayo"], banmal: ["banmal"] };
+const QA_TONE_LABEL = { hamnida: "합니다체", haeyo: "해요체", banmal: "반말", kkayo: "~ㄹ까요?", unknown: "모름" };
+
+function qaClassifyEnding(sentence) {
+  const body = sentence.replace(/[.?!\s]+$/, "");
+  const hit = QA_ENDING_CLASS.find((c) => c.re.test(body));
+  return hit ? hit.cls : "unknown";
+}
+
+// 메시지 한 통의 문장들. 목록 줄("- 기한: …")은 값이 문장 끝(니다·요·?)으로 끝날 때만 문장으로 본다.
+// 괄호로 시작하는 줄("(상대 확인: …)")은 문장이 아니라서 뺀다.
+function qaToneSentences(text) {
+  const out = [];
+  String(text)
+    .split("\n")
+    .forEach((line) => {
+      const bullet = line.match(/^-\s*[^:]+:\s*(.*)$/);
+      if (bullet) {
+        const v = bullet[1].trim();
+        if (/(?:니다|니까|요)[.?!]?$|\?$/.test(v)) out.push(v);
+        return;
+      }
+      (line.match(/[^.?!]+[.?!]+|[^.?!]+$/g) || []).forEach((s) => {
+        const t = s.trim();
+        if (!t || t.startsWith("(") || !/[가-힣]/.test(t)) return;
+        if (/님[.,]?$/.test(t)) return; // "안녕하세요, 담당자님." 같은 인사는 문장 끝맺음이 아니다
+        out.push(t);
+      });
+    });
+  return out;
+}
+
+async function runToneCheck(DATA, SAMPLES, generate) {
+  const jobs = [];
+  SAMPLES.samples.forEach((sample) => {
+    const card = DATA.cards.find((c) => c.id === sample.cardId);
+    const fields = Object.fromEntries(card.fields.map((f) => [f.key, sample.fields[f.key] || null]));
+    DATA.partners.forEach((partner) => {
+      ["hamnida", "haeyo"].forEach((ending) => {
+        const profile = { sentenceLength: "normal", requestStyle: "soft", ending, avoidPhrases: "", preferredExamples: [] };
+        jobs.push({ sample, card, fields, partner, profile, tone: QA_TONE_BY_PARTNER[partner.id] || ending });
+      });
+    });
+  });
+  const runs = await Promise.all(
+    jobs.map(async (job) => {
+      const out = await generate({ card: job.card, fields: job.fields, recipient: job.partner, profile: job.profile, preferred: [] });
+      return { ...job, variants: out.variants, reasons: out.reasons };
+    }),
+  );
+
+  const mixed = []; // 문체 혼합 (메시지 단위)
+  const unknown = {}; // 변환 못 한 끝맺음: 끝 2글자 → { count, example }
+  const reasonIssues = []; // 수정 이유가 해요체가 아님
+  let messages = 0;
+  runs.forEach((run) => {
+    run.variants.forEach((variant) => {
+      messages += 1;
+      const bad = [];
+      qaToneSentences(variant.text).forEach((s) => {
+        const cls = qaClassifyEnding(s);
+        if (cls === "unknown") {
+          const end = s.replace(/[.?!\s]+$/, "").slice(-2);
+          unknown[end] = unknown[end] || { count: 0, example: s };
+          unknown[end].count += 1;
+          return;
+        }
+        if (!QA_ALLOWED[run.tone].includes(cls)) bad.push({ s, cls });
+      });
+      if (bad.length) mixed.push({ run, tab: variant.type, bad });
+      (variant.reasons || run.reasons).forEach((reason) => {
+        if (qaClassifyEnding(reason) !== "haeyo") reasonIssues.push({ run, tab: variant.type, reason });
+      });
+    });
+  });
+  return { runs, messages, mixed, unknown, reasonIssues };
+}
+
+function toneMarkdown(tone, { title, date }) {
+  const lines = [`# ${title}`, ""];
+  lines.push(`- 실행일: ${date} · \`scripts/qa.html\` (브라우저에서 ai.js 그대로 실행)`);
+  lines.push(`- 대상: 샘플 30건 × 받는 사람 4종 × 끝맺음 2종 = 생성 ${tone.runs.length}회 × 탭 3종 = 메시지 ${tone.messages}개 (요청 방식 '부드럽게' · 문장 길이 '보통')`);
+  lines.push('- 기준: 메시지 한 통 = 문체 하나 (클라이언트 합니다체 · 동기 반말 · 선배·인차지 = 끝맺음 설정). 합니다체 의문문은 "~ㄹ까요?" 허용', "");
+  const byPartner = {};
+  tone.mixed.forEach((m) => (byPartner[m.run.partner.label] = (byPartner[m.run.partner.label] || 0) + 1));
+  const unknownTotal = Object.values(tone.unknown).reduce((a, u) => a + u.count, 0);
+  lines.push("| 항목 | 개수 |", "|---|---:|");
+  lines.push(`| 문체 혼합 메시지 | ${tone.mixed.length} / ${tone.messages} |`);
+  lines.push(`| 받는 사람별 (선배 · 인차지 · 동기 · 클라이언트) | ${["선배", "인차지", "동기", "클라이언트"].map((p) => byPartner[p] || 0).join(" · ")} |`);
+  lines.push(`| 변환 못 한 끝맺음 (문장 수) | ${unknownTotal} |`);
+  lines.push(`| 수정 이유가 해요체가 아님 | ${tone.reasonIssues.length} |`, "");
+
+  lines.push("## 변환 못 한 끝맺음 목록 (끝 2글자 · 개수 · 예)", "");
+  const unk = Object.entries(tone.unknown).sort((a, b) => b[1].count - a[1].count);
+  if (!unk.length) lines.push("- 없음");
+  unk.forEach(([end, u]) => lines.push(`- "${end}" · ${u.count} · "${u.example}"`));
+  lines.push("");
+
+  lines.push("## 문체 혼합 예시 (최대 15개 · 같은 샘플·같은 문장은 한 번만)", "");
+  if (!tone.mixed.length) lines.push("- 없음");
+  const seen = new Set();
+  let n = 0;
+  for (const m of tone.mixed) {
+    for (const b of m.bad) {
+      const key = `${m.run.sample.id}|${b.s}`;
+      if (seen.has(key) || n >= 15) continue;
+      seen.add(key);
+      n += 1;
+      lines.push(`- **${m.run.sample.id}** · ${m.run.partner.label} · 설정 ${QA_TONE_LABEL[m.run.profile.ending]} → 정한 문체 ${QA_TONE_LABEL[m.run.tone]} · ${TAB_LABEL[m.tab]} — "${b.s}" (${QA_TONE_LABEL[b.cls]})`);
+    }
+  }
+  lines.push("");
+  if (tone.reasonIssues.length) {
+    lines.push("## 수정 이유가 해요체가 아닌 문장", "");
+    tone.reasonIssues.slice(0, 10).forEach((r) => lines.push(`- ${r.run.sample.id} · ${TAB_LABEL[r.tab]} — "${r.reason}"`));
+    lines.push("");
+  }
+  return lines.join("\n");
+}

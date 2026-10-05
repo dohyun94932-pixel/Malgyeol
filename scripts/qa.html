@@ -49,14 +49,19 @@
         const s = summarize(data);
         const date = new Date().toISOString().slice(0, 10);
         const md = toMarkdown(data, { title: `말결 메시지 자동 점검 (${date})`, date });
+        // 문체 점검 (메시지 한 통 = 문체 하나)
+        const tone = await runToneCheck(cards, SAMPLES, generateMessages);
+        const toneMd = toneMarkdown(tone, { title: `말결 문체 점검 (${date})`, date });
+        const unknownCount = Object.values(tone.unknown).reduce((a, u) => a + u.count, 0);
 
         document.getElementById("summary").innerHTML =
           "<table><tr><th>항목</th><th>문제 수</th><th>문제 난 메시지 수</th></tr>" +
           s.rows.map((r) => `<tr><td>${r.name}</td><td class="num">${r.count}</td><td class="num">${r.messages}</td></tr>`).join("") +
-          `</table><p class="muted">메시지 ${s.messages}개 점검 · 탭 3종의 수정 이유가 모두 같은 생성: ${s.sameReasons}/${s.runs}회</p>`;
-        document.getElementById("markdown").value = md;
+          `</table><p class="muted">메시지 ${s.messages}개 점검 · 탭 3종의 수정 이유가 모두 같은 생성: ${s.sameReasons}/${s.runs}회</p>` +
+          `<h2>문체 점검</h2><p>문체 혼합 메시지 <strong>${tone.mixed.length}</strong> / ${tone.messages} · 변환 못 한 끝맺음 ${unknownCount}문장 · 수정 이유 해요체 아님 ${tone.reasonIssues.length}</p>`;
+        document.getElementById("markdown").value = `${md}\n\n---\n\n${toneMd}`;
         status.textContent = "점검 완료";
-        window.QA_RESULT = { summary: s, markdown: md, data };
+        window.QA_RESULT = { summary: s, markdown: md, data, tone, toneMarkdown: toneMd };
 
         const download = document.getElementById("download");
         download.disabled = false;
