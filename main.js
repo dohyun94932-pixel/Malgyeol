@@ -333,6 +333,8 @@ async function buildResult() {
   state.variants = result.variants;
   state.reasons = result.reasons;
   state.activeVariant = 0;
+  // 실제 AI가 실패해서 가짜 AI로 대체됐을 때만 결과 화면에 안내 한 줄 (?mock으로 일부러 쓸 때는 안 보임)
+  $("ai-fallback-notice").hidden = result.source !== "fallback";
   renderResult();
 }
 

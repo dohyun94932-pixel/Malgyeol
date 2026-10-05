@@ -1,4 +1,8 @@
-// 가짜 AI (목업). 나중에 실제 AI 호출로 바꿀 때 이 파일의 함수만 교체한다.
+// AI 호출 (브라우저 쪽). structurize()·generateMessages()가 서버 함수(api/ · Gemini)를 부르고,
+// 실패하면(서버 오류·시간 초과·호출 한도 429·형식 오류·네트워크 끊김) 아래 가짜 AI(mock…) 결과로 자동 대체한다.
+// 주소에 ?mock 을 붙이면 항상 가짜 AI를 쓴다 (시연 비상용). 키는 서버에만 있고 이 파일에는 없다.
+//
+// 가짜 AI (목업): 대체용으로 남겨 둔다.
 // 이 파일에는 로직만 둔다. 문장 틀은 content.js, 카드·칸·받는 사람·수정 이유 문구는 data/cards.json,
 // 샘플은 data/malgyeol_sample_data.json을 쓴다. (main.js가 불러 DATA · SAMPLE_DATA에 넣는다)
 // 입출력 형식은 코딩 레퍼런스 2장(8절 데이터·저장)과 기획안 10장 기준.
@@ -24,11 +28,11 @@ function findSample(card, input) {
   );
 }
 
-// 호출 1 · 구조화
+// 가짜 AI 호출 1 · 구조화
 // 입력: card(cards.json의 카드), input(한 줄)
 // 출력: { fields: {칸키: 값 또는 null}, followups: {칸키: 되묻는 질문} }
 // 한 줄에서 알 수 있는 칸만 채우고 나머지는 null로 둔다. 지어내지 않는다.
-async function structurize(card, input) {
+async function mockStructurize(card, input) {
   await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
 
   const fields = {};
@@ -450,7 +454,15 @@ function splitSentences(text) {
 }
 
 
-// ---------- 호출 2 · 메시지 생성 ----------
+// 메시지 한 통 = 문체 하나. 먼저 문체를 정한다: 클라이언트 = 합니다체, 동기 = 반말 [확인 필요],
+// 선배·인차지 = 내 말투 끝맺음 설정. (CLAUDE.md '반드시 지킬 것') 반환: 0 합니다체 · 1 해요체 · 2 반말
+function toneFormFor(recipient, profile) {
+  const style = PARTNER_STYLE[recipient.id] || {};
+  const ending = style.ending || profile.ending;
+  return ending === "banmal" ? 2 : ending === "haeyo" ? 1 : 0;
+}
+
+// ---------- 가짜 AI 호출 2 · 메시지 생성 ----------
 
 // 입력: { card, fields, recipient, profile, preferred }
 //   recipient: cards.json partners 항목 { id, label, honorific }
@@ -458,15 +470,12 @@ function splitSentences(text) {
 // 출력: { variants: [{ type: mine|concise|soft, text, evidence: {칸키: 근거 구절}, reasons: [...] }], reasons: [...] }
 //   맨 바깥 reasons는 '내 말투안'의 수정 이유와 같다. 탭마다 수정 이유가 다르다. (B3)
 // 확정된 칸의 내용은 빠뜨리거나 바꾸지 않는다. 바꾸는 것은 문장 끝맺음뿐이다.
-async function generateMessages({ card, fields, recipient, profile }) {
+async function mockGenerateMessages({ card, fields, recipient, profile }) {
   await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
 
   const flow = MESSAGE_FLOW[card.id];
   const style = PARTNER_STYLE[recipient.id] || { greeting: "{h}," };
-  // 메시지 한 통 = 문체 하나. 먼저 문체를 정한다: 클라이언트 = 합니다체, 동기 = 반말 [확인 필요],
-  // 선배·인차지 = 내 말투 끝맺음 설정. (CLAUDE.md '반드시 지킬 것')
-  const ending = style.ending || profile.ending;
-  const form = ending === "banmal" ? 2 : ending === "haeyo" ? 1 : 0;
+  const form = toneFormFor(recipient, profile);
   const requestStyle = style.formal && profile.requestStyle === "direct" ? "soft" : profile.requestStyle;
   const pick = (template) => pickForm(template, form);
   const labelOf = (key) => card.fields.find((field) => field.key === key).label;
@@ -580,4 +589,172 @@ async function generateMessages({ card, fields, recipient, profile }) {
     { type: "soft", ...finish(soft, evidence), reasons: reasonsFor("soft", 2) },
   ];
   return { variants, reasons: variants[0].reasons };
+}
+
+// ---------- 실제 AI (Gemini · api/ 서버 함수) + 가짜 AI 대체 ----------
+// 입출력 형식은 가짜 AI와 같다. 결과에 source가 붙는다: "ai"(실제 AI) · "fallback"(실패해서 가짜 AI) · "mock"(?mock)
+
+const AI_TIMEOUT_MS = { structurize: 8000, generate: 15000 };
+const CLIENT_LIMIT = 10; // 한 브라우저 1분 10회 (넘으면 서버를 부르지 않고 가짜 AI)
+const CLIENT_WINDOW_MS = 60 * 1000;
+const AI_CACHE_TTL_MS = 10 * 60 * 1000; // 같은 입력은 10분 동안 저장해 둔 결과를 다시 쓴다 (무료 등급 호출 아끼기)
+
+function forceMock() {
+  try {
+    return new URLSearchParams(location.search).has("mock");
+  } catch (error) {
+    return false;
+  }
+}
+
+// 브라우저마다 다른 임의의 값 (서버의 간단한 호출 제한용 · 개인정보 아님)
+function aiClientId() {
+  try {
+    let id = localStorage.getItem("malgyeol.clientId");
+    if (!id) {
+      id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem("malgyeol.clientId", id);
+    }
+    return id;
+  } catch (error) {
+    return "anonymous";
+  }
+}
+
+function takeCallSlot() {
+  try {
+    const now = Date.now();
+    const recent = (JSON.parse(sessionStorage.getItem("malgyeol.aiCalls")) || []).filter((t) => now - t < CLIENT_WINDOW_MS);
+    if (recent.length >= CLIENT_LIMIT) return false;
+    recent.push(now);
+    sessionStorage.setItem("malgyeol.aiCalls", JSON.stringify(recent));
+    return true;
+  } catch (error) {
+    return true;
+  }
+}
+
+// 같은 입력인지 비교하려고 입력을 짧은 값으로 바꾼다 (저장 열쇠)
+function aiCacheKey(prefix, payload) {
+  const s = JSON.stringify(payload);
+  let h = 5381;
+  for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `malgyeol.ai.${prefix}.${(h >>> 0).toString(36)}${s.length.toString(36)}`;
+}
+function aiCacheGet(key) {
+  try {
+    const item = JSON.parse(sessionStorage.getItem(key));
+    return item && Date.now() - item.at < AI_CACHE_TTL_MS ? item.value : null;
+  } catch (error) {
+    return null;
+  }
+}
+function aiCacheSet(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), value }));
+  } catch (error) {
+    // 저장 공간이 없으면 저장하지 않고 넘어간다
+  }
+}
+
+async function callServer(path, payload, timeoutMs) {
+  if (!takeCallSlot()) throw new Error("client_rate");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs + 1500); // 서버 시간 제한보다 조금 길게
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Malgyeol-Client": aiClientId() },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`http_${response.status}`); // 429도 여기서 바로 가짜 AI로 (다시 부르지 않음)
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 서버로 보낼 카드 정의 (cards.json의 카드 그대로 · 카드를 고쳐도 서버 코드는 그대로)
+function cardPayload(card) {
+  return {
+    id: card.id,
+    name: card.name,
+    fields: card.fields.map((f) => ({ key: f.key, label: f.label, required: Boolean(f.required), followUp: f.followUp || null })),
+  };
+}
+
+// 호출 1 · 구조화 — 입력: card(cards.json의 카드), input(한 줄) / 출력: { fields, followups, source }
+async function structurize(card, input) {
+  if (forceMock()) return { ...(await mockStructurize(card, input)), source: "mock" };
+  const payload = { card: cardPayload(card), input: String(input).slice(0, 500) };
+  const key = aiCacheKey("s", payload);
+  const cached = aiCacheGet(key);
+  if (cached) return { ...cached, source: "ai" };
+  try {
+    const data = await callServer("api/structurize", payload, AI_TIMEOUT_MS.structurize);
+    const fields = {};
+    const followups = {};
+    card.fields.forEach((f) => {
+      const v = data && data.fields ? data.fields[f.key] : null;
+      fields[f.key] = typeof v === "string" && v.trim() ? v.trim() : null;
+      if (f.required && !fields[f.key]) followups[f.key] = f.followUp;
+    });
+    const result = { fields, followups };
+    aiCacheSet(key, result);
+    return { ...result, source: "ai" };
+  } catch (error) {
+    return { ...(await mockStructurize(card, input)), source: "fallback" };
+  }
+}
+
+// 실제 AI 결과를 앱 형식으로 마무리: 문체 하나로 맞추고(안전망), 근거 구절을 바뀐 본문에 맞춘다.
+function finishAiResult(data, recipient, profile) {
+  const form = toneFormFor(recipient, profile);
+  const variants = ["mine", "concise", "soft"].map((type) => {
+    const v = ((data && data.variants) || []).find((item) => item && item.type === type);
+    if (!v || typeof v.text !== "string" || !v.text.trim()) throw new Error("shape");
+    const text = unifyTone(v.text.trim(), form);
+    const evidence = {};
+    Object.entries(v.evidence || {}).forEach(([k, e]) => {
+      if (typeof e === "string" && e) evidence[k] = e;
+    });
+    const reasons = (Array.isArray(v.reasons) ? v.reasons : []).filter((r) => typeof r === "string" && r.trim()).slice(0, 3);
+    return { type, text, evidence: fitEvidence(evidence, text), reasons };
+  });
+  return { variants, reasons: variants[0].reasons };
+}
+
+// 호출 2 · 메시지 생성 — 입력: { card, fields, recipient, profile, preferred } / 출력: { variants, reasons, source }
+async function generateMessages(args) {
+  const { card, fields, recipient, profile, preferred } = args;
+  if (forceMock()) return { ...(await mockGenerateMessages(args)), source: "mock" };
+  const filled = {};
+  card.fields.forEach((f) => {
+    const v = String(fields[f.key] || "").trim();
+    if (v) filled[f.key] = v.slice(0, 500);
+  });
+  const base = {
+    card: cardPayload(card),
+    fields: filled,
+    recipient: { id: recipient.id, label: recipient.label, honorific: recipient.honorific || "" },
+    profile: {
+      sentenceLength: profile.sentenceLength,
+      requestStyle: profile.requestStyle,
+      ending: profile.ending,
+      avoidPhrases: String(profile.avoidPhrases || "").slice(0, 200),
+    },
+  };
+  // 카드·칸·받는 사람·말투가 모두 같으면 저장해 둔 결과를 다시 쓴다
+  const key = aiCacheKey("g", base);
+  const cached = aiCacheGet(key);
+  if (cached) return { ...cached, source: "ai" };
+  try {
+    const data = await callServer("api/generate", { ...base, preferred: (preferred || []).slice(0, 5) }, AI_TIMEOUT_MS.generate);
+    const result = finishAiResult(data, recipient, profile);
+    aiCacheSet(key, result);
+    return { ...result, source: "ai" };
+  } catch (error) {
+    return { ...(await mockGenerateMessages(args)), source: "fallback" };
+  }
 }

@@ -446,3 +446,19 @@ input[type="text"] {
   background: #f0f0f0;
   padding: 1px 4px;
 }
+
+/* AI 안내: 입력이 AI 서비스로 전송된다는 안내 · 가짜 AI 대체 안내 */
+.ai-data-notice {
+  margin: -16px 0 24px;
+  color: #666;
+  font-size: 13px;
+}
+
+.ai-notice {
+  margin: -12px 0 12px;
+  border-radius: 8px;
+  background: #f0f0f0;
+  padding: 8px 12px;
+  color: #666;
+  font-size: 13px;
+}

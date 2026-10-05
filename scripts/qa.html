@@ -18,7 +18,7 @@
 <body>
   <!-- 내부 점검용 페이지 (앱 화면 아님). 로컬 서버로 열어야 한다: README '메시지 자동 점검' -->
   <h1>말결 메시지 자동 점검</h1>
-  <p class="muted">ai.js · content.js를 고치지 않고 그대로 불러와, 샘플 30건과 추가 사례로 generateMessages()를 돌려 점검합니다.</p>
+  <p class="muted">ai.js의 가짜 AI(mockGenerateMessages)를 그대로 불러와 (실제 AI 호출은 쓰지 않음), 샘플 30건과 추가 사례로 generateMessages()를 돌려 점검합니다.</p>
   <p id="status">점검 중…</p>
   <div id="summary"></div>
   <p>
@@ -45,12 +45,12 @@
         ]);
         DATA = cards;
         SAMPLE_DATA = SAMPLES;
-        const data = await runAll(cards, SAMPLES, generateMessages);
+        const data = await runAll(cards, SAMPLES, mockGenerateMessages);
         const s = summarize(data);
         const date = new Date().toISOString().slice(0, 10);
         const md = toMarkdown(data, { title: `말결 메시지 자동 점검 (${date})`, date });
         // 문체 점검 (메시지 한 통 = 문체 하나)
-        const tone = await runToneCheck(cards, SAMPLES, generateMessages);
+        const tone = await runToneCheck(cards, SAMPLES, mockGenerateMessages);
         const toneMd = toneMarkdown(tone, { title: `말결 문체 점검 (${date})`, date });
         const unknownCount = Object.values(tone.unknown).reduce((a, u) => a + u.count, 0);
 

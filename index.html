@@ -35,6 +35,7 @@
     <label class="input-label" for="home-input" data-copy="uiCopy.oneLineLabel"></label>
     <textarea id="home-input" rows="3"></textarea>
     <p class="security-note" data-copy="uiCopy.confidentialNotice"></p>
+    <p class="ai-data-notice" data-copy="uiCopy.aiDataNotice"></p>
 
     <button type="button" class="primary" id="home-submit" disabled data-copy="uiCopy.buttons.organize"></button>
   </main>
@@ -54,6 +55,7 @@
       <p class="block-desc" data-copy="uiCopy.fieldsHint"></p>
       <div id="field-list"></div>
       <p class="security-note" data-copy="uiCopy.confidentialNotice"></p>
+    <p class="ai-data-notice" data-copy="uiCopy.aiDataNotice"></p>
     </section>
 
     <div class="actions">
@@ -67,6 +69,8 @@
     <h1 data-copy="uiCopy.resultTitle"></h1>
     <p class="summary"><strong id="result-card"></strong> · <span data-copy="uiCopy.partnerLabel"></span> <span id="result-recipient"></span></p>
 
+    <!-- 실제 AI가 실패해 가짜 AI 결과를 보여 줄 때만 보인다 -->
+    <p class="ai-notice" id="ai-fallback-notice" data-copy="uiCopy.aiFallbackNotice" hidden></p>
     <div class="tabs" id="variant-tabs" role="tablist" aria-label="메시지 종류"></div>
     <textarea id="message-text" rows="9" aria-label="메시지 본문"></textarea>
 
