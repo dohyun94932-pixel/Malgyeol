@@ -1,10 +1,12 @@
-/* 색 — 삼일회계법인(Samil PwC) 상징색인 주황 계열 (기획안 v1.1 PDF · 화면 시안과 같은 #FD5108)
+/* 디자인 토큰 — 코딩 레퍼런스 2장 '디자인 토큰' (메인 색은 파란색 유지 · 팀 결정 10/05 C3)
    색을 바꿀 때는 이 변수만 고친다. */
 :root {
-  --color-primary: #fd5108; /* 주 버튼 채움, 선택된 칩·탭·카드 테두리 */
-  --color-primary-text: #d04a02; /* 흰·연한 배경 위의 주황 글자 (읽기 쉽게 한 단계 진하게) */
-  --color-primary-light: #fdbea2; /* 비활성 주 버튼, 카드 마우스 올림 테두리 */
-  --color-primary-tint: #fff1ea; /* 선택된 카드·말투 설정 배너 배경 */
+  --color-primary: #4c5ce1; /* 주 버튼 채움, 선택된 칩·탭·카드 테두리 */
+  --color-primary-text: #4c5ce1; /* 흰·연한 배경 위의 파란 글자 (로고·카드 제목) */
+  --color-primary-light: #bdc4ea; /* 비활성 주 버튼, 카드 마우스 올림 테두리 */
+  --color-primary-tint: #f0f2fe; /* 선택된 카드·말투 설정 배너 배경 */
+  --max-width: 480px; /* 모바일 우선 · PC에서도 같은 폭 (레퍼런스 2장 3. 레이아웃) */
+  --button-height: 52px; /* 주 버튼 높이 */
 }
 
 * {
@@ -20,7 +22,7 @@ html {
 body {
   margin: 0;
   font-size: 16px; /* 본문·입력 16px (팀 결정 10/05 · 코딩 레퍼런스 2장의 15px 대신) */
-  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   color: #222;
   background: #fafafa;
   line-height: 1.5;
@@ -42,7 +44,7 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  max-width: 720px;
+  max-width: var(--max-width);
   margin: 0 auto;
   padding: calc(16px + env(safe-area-inset-top)) 20px 16px;
 }
@@ -53,6 +55,7 @@ button:disabled {
   padding: 0;
   font-size: 20px;
   font-weight: 700;
+  color: var(--color-primary-text); /* 로고 20px/700 · 메인 색 (레퍼런스 2장) */
 }
 
 .link-button {
@@ -65,7 +68,7 @@ button:disabled {
 
 /* 화면 공통 */
 .screen {
-  max-width: 720px;
+  max-width: var(--max-width);
   margin: 0 auto;
   padding: 8px 20px calc(48px + env(safe-area-inset-bottom)); /* iPhone 아래 막대 영역만큼 여백 */
 }
@@ -87,6 +90,7 @@ h1 {
 
 .primary {
   width: 100%;
+  min-height: var(--button-height);
   border: none;
   background: var(--color-primary);
   color: #fff;
@@ -447,25 +451,7 @@ input[type="text"] {
   padding: 1px 4px;
 }
 
-/* AI 안내: 입력이 AI 서비스로 전송된다는 안내 · 가짜 AI 대체 안내 */
-.ai-data-notice {
-  margin: -16px 0 24px;
-  color: #666;
-  font-size: 13px;
-}
-
-.ai-notice {
-  margin: -12px 0 12px;
-  border-radius: 8px;
-  background: #f0f0f0;
-  padding: 8px 12px;
-  color: #666;
-  font-size: 13px;
-}
-
-/* ?review 전용: 결과 출처 (심사용 링크에는 안 보임) */
-.ai-source {
-  margin: -12px 0 12px;
-  color: #999;
-  font-size: 12px;
+/* B5: 복사 완료 (2초) */
+.primary.done {
+  background: var(--color-ok, #1e7f4f);
 }

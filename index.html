@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>말결</title>
+  <!-- 글꼴: Pretendard (코딩 레퍼런스 2장) · 못 불러오면 기본 글꼴 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="review.css">
 </head>
@@ -35,7 +37,6 @@
     <label class="input-label" for="home-input" data-copy="uiCopy.oneLineLabel"></label>
     <textarea id="home-input" rows="3"></textarea>
     <p class="security-note" data-copy="uiCopy.confidentialNotice"></p>
-    <p class="ai-data-notice" data-copy="uiCopy.aiDataNotice"></p>
 
     <button type="button" class="primary" id="home-submit" disabled data-copy="uiCopy.buttons.organize"></button>
   </main>
@@ -55,7 +56,6 @@
       <p class="block-desc" data-copy="uiCopy.fieldsHint"></p>
       <div id="field-list"></div>
       <p class="security-note" data-copy="uiCopy.confidentialNotice"></p>
-    <p class="ai-data-notice" data-copy="uiCopy.aiDataNotice"></p>
     </section>
 
     <div class="actions">
@@ -69,10 +69,6 @@
     <h1 data-copy="uiCopy.resultTitle"></h1>
     <p class="summary"><strong id="result-card"></strong> · <span data-copy="uiCopy.partnerLabel"></span> <span id="result-recipient"></span></p>
 
-    <!-- 실제 AI가 실패해 가짜 AI 결과를 보여 줄 때만 보인다 -->
-    <!-- ?review일 때만: 결과를 어디서 만들었는지 (Gemini / 가짜 AI · 이유) -->
-    <p class="ai-source" id="ai-source" hidden></p>
-    <p class="ai-notice" id="ai-fallback-notice" data-copy="uiCopy.aiFallbackNotice" hidden></p>
     <div class="tabs" id="variant-tabs" role="tablist" aria-label="메시지 종류"></div>
     <textarea id="message-text" rows="9" aria-label="메시지 본문"></textarea>
 
@@ -140,7 +136,7 @@
   </nav>
 
   <script src="content.js"></script>
-  <script src="ai.js"></script>
+  <script src="engine.js"></script>
   <script src="main.js"></script>
   <script src="review.js"></script>
 </body>

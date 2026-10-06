@@ -27,7 +27,7 @@
 - 모바일 우선(최대 폭 480px). PC에서도 깨지지 않아야 한다.
 - 생성 메시지 한 통에는 문체를 하나만 쓴다. 클라이언트=합니다체, 동기=반말, 선배·인차지=내 말투 끝맺음 설정.
 - 앱 안내 문구는 해요체로 통일한다.
-- AI는 Gemini(api/ 서버 함수). 실패 시 가짜 AI로 자동 대체. API 키는 서버 환경변수(GEMINI_API_KEY)에만 둔다.
+- 외부 AI API 사용 안 함. 샘플 데이터와 규칙 기반 엔진(engine.js · content.js), Claude와 협업해 개발. (10/06 운영진 안내)
 
 ■ 작업 방식
 - 수정 요청을 받으면 "유지할 것 / 바꿀 것"을 먼저 짧게 정리한 뒤 코드를 고친다.
@@ -37,6 +37,6 @@
 - 원격 저장소는 2개다. mine = 개인 저장소(github.com/dohyun94932-pixel/Malgyeol), origin = 팀 저장소(github.com/kkihalee/-A-2-).
 - 작업은 항상 브랜치에서 한다. main에서 바로 고치지 않는다.
 - 확인용으로는 브랜치를 mine에 push한다 → Vercel 미리보기 주소가 생긴다. (Vercel에 mine 저장소가 연결돼 있을 때)
-- mine의 main에 합치면 mine의 실제 배포 주소가 바뀐다. 합치기 전에 사용자에게 확인한다.
+- mine의 main은 10/06부터 건드리지 않는다. 제출 링크는 origin main이 배포되는 malgyeol-neon.vercel.app 이다.
 - origin(팀 저장소)에는 사용자가 요청할 때만 push·PR·병합한다. 그 밖의 경우 origin은 건드리지 않는다.
 - push 전에 .env, .env.local, API 키·토큰이 올라가지 않는지 확인한다.

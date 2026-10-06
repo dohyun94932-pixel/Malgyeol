@@ -13,8 +13,8 @@
     textarea { width: 100%; height: 360px; font: 13px/1.5 ui-monospace, Consolas, monospace; }
     button { padding: 8px 14px; font: inherit; cursor: pointer; }
     .muted { color: #666; font-size: 14px; }
-    #gemini table { width: 100%; font-size: 14px; }
-    #gemini td { vertical-align: top; white-space: pre-wrap; }
+    #showcase table { width: 100%; font-size: 14px; }
+    #showcase td { vertical-align: top; white-space: pre-wrap; }
     .ok { color: #1a7f37; }
     .bad { color: #c62828; }
   </style>
@@ -22,7 +22,7 @@
 <body>
   <!-- 내부 점검용 페이지 (앱 화면 아님). 로컬 서버로 열어야 한다: README '메시지 자동 점검' -->
   <h1>말결 메시지 자동 점검</h1>
-  <p class="muted">ai.js의 가짜 AI(mockGenerateMessages)를 그대로 불러와 (실제 AI 호출은 쓰지 않음), 샘플 30건과 추가 사례로 generateMessages()를 돌려 점검합니다.</p>
+  <p class="muted">문장 정리 엔진(engine.js)을 그대로 불러와 샘플 30건과 추가 사례를 받는 사람 4종 × 끝맺음 2종 × 요청 방식 3종 × [다시 만들기] 조합 3가지로 돌려 점검합니다. (외부 호출 없음)</p>
   <p id="status">점검 중…</p>
   <div id="summary"></div>
   <p>
@@ -31,27 +31,20 @@
   </p>
   <textarea id="markdown" readonly aria-label="점검 결과 마크다운"></textarea>
 
-  <!-- Gemini 모드: 대표 6건만 실제 AI로 돌려 본다 (Vercel 미리보기에서 · 무료 한도를 아끼려고 누를 때만 실행) -->
-  <section id="gemini">
-    <h2>Gemini 모드</h2>
-    <p class="muted">대표 6건(실제 사례 · q01 · r02 · s01 · q03 동기 · r05 클라이언트)을 실제 Gemini로 만들어 같은 기준으로 점검합니다.
-      누를 때마다 Gemini를 <strong>6번</strong> 부릅니다(저장된 결과는 쓰지 않음). 내 PC(py -m http.server)에서는 서버 함수가 없어 모두 가짜 AI로 나옵니다.</p>
-    <p>
-      <button type="button" id="gemini-run">Gemini 모드 실행 (6번 호출)</button>
-      <button type="button" id="gemini-copy" disabled>결과 복사</button>
-      <span id="gemini-count" class="muted"></span>
-    </p>
-    <p id="gemini-status" class="muted"></p>
-    <div id="gemini-table"></div>
+  <!-- 대표 결과: 시연·발표에 쓰는 샘플 6건의 실제 문장 (샘플에 적힌 받는 사람 · 합니다체 · 부드럽게) -->
+  <section id="showcase">
+    <h2>대표 결과 (q01 · q03 · r02 · r05 · s01 · s05)</h2>
+    <p class="muted">샘플에 적힌 받는 사람 · 합니다체 · 부드럽게 · 처음 만든 결과(조합 0)</p>
+    <div id="showcase-table"></div>
   </section>
 
   <script>
-    // ai.js는 앱에서 main.js가 넣어 주는 DATA(cards.json)·SAMPLE_DATA를 참고한다. 점검에서는 여기서 넣는다.
+    // engine.js는 앱에서 main.js가 넣어 주는 DATA(cards.json)·SAMPLE_DATA를 참고한다. 점검에서는 여기서 넣는다.
     let DATA = null;
     let SAMPLE_DATA = null;
   </script>
   <script src="../content.js"></script>
-  <script src="../ai.js"></script>
+  <script src="../engine.js"></script>
   <script src="check-messages.js"></script>
   <script>
     (async () => {
@@ -63,12 +56,12 @@
         ]);
         DATA = cards;
         SAMPLE_DATA = SAMPLES;
-        const data = await runAll(cards, SAMPLES, mockGenerateMessages);
+        const data = await runAll(cards, SAMPLES, generateMessages);
         const s = summarize(data);
         const date = new Date().toISOString().slice(0, 10);
         const md = toMarkdown(data, { title: `말결 메시지 자동 점검 (${date})`, date });
         // 문체 점검 (메시지 한 통 = 문체 하나)
-        const tone = await runToneCheck(cards, SAMPLES, mockGenerateMessages);
+        const tone = await runToneCheck(cards, SAMPLES, generateMessages);
         const toneMd = toneMarkdown(tone, { title: `말결 문체 점검 (${date})`, date });
         const unknownCount = Object.values(tone.unknown).reduce((a, u) => a + u.count, 0);
 
@@ -80,6 +73,7 @@
         document.getElementById("markdown").value = `${md}\n\n---\n\n${toneMd}`;
         status.textContent = "점검 완료";
         window.QA_RESULT = { summary: s, markdown: md, data, tone, toneMarkdown: toneMd };
+        await renderShowcase(cards, SAMPLES);
 
         const download = document.getElementById("download");
         download.disabled = false;
@@ -95,93 +89,28 @@
       }
     })();
 
-    // ---------- Gemini 모드 ----------
-    const GEMINI_CASE_IDS = ["REAL", "q01", "r02", "s01", "q03", "r05"];
-    const GEMINI_PROFILE = { sentenceLength: "normal", requestStyle: "soft", ending: "hamnida", avoidPhrases: "", preferredExamples: [] };
-    const GEMINI_COUNT_KEY = "malgyeol.qa.geminiCalls";
-    let geminiReport = "";
-
+    // ---------- 대표 결과 ----------
+    const SHOWCASE_IDS = ["q01", "q03", "r02", "r05", "s01", "s05"];
+    const SHOWCASE_PROFILE = { sentenceLength: "normal", requestStyle: "soft", ending: "hamnida", avoidPhrases: "", preferredExamples: [] };
     const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-    function geminiCalls() {
-      try {
-        return Number(sessionStorage.getItem(GEMINI_COUNT_KEY)) || 0;
-      } catch (error) {
-        return 0;
-      }
-    }
-    function showGeminiCount() {
-      document.getElementById("gemini-count").textContent = `이 탭에서 Gemini 호출(무료 한도 사용) ${geminiCalls()}번`;
-    }
-    showGeminiCount();
-
-    document.getElementById("gemini-run").addEventListener("click", async () => {
-      const button = document.getElementById("gemini-run");
-      const status = document.getElementById("gemini-status");
-      if (!DATA || !SAMPLE_DATA) return;
-      button.disabled = true;
-      const partnerByLabel = Object.fromEntries(DATA.partners.map((x) => [x.label, x]));
-      const all = [...SAMPLE_DATA.samples, ...EXTRA_CASES];
+    async function renderShowcase(cards, SAMPLES) {
+      const partnerByLabel = Object.fromEntries(cards.partners.map((x) => [x.label, x]));
       const rows = [];
-      const md = [`# 말결 Gemini 모드 점검 (${new Date().toISOString().slice(0, 16).replace("T", " ")})`, "", `말투: 합니다체 · 부드럽게 · 보통`, ""];
-      // 한도를 아끼려고 한 건씩 차례로 부른다
-      for (const [index, id] of GEMINI_CASE_IDS.entries()) {
-        const c = all.find((x) => x.id === id);
-        status.textContent = `${id} 만드는 중… (${index + 1}/${GEMINI_CASE_IDS.length})`;
-        const card = DATA.cards.find((x) => x.id === c.cardId);
-        const fields = Object.fromEntries(card.fields.map((f) => [f.key, c.fields[f.key] || null]));
-        const values = Object.fromEntries(Object.entries(fields).filter(([, v]) => v && String(v).trim()));
-        const partner = partnerByLabel[c.partner];
-        const out = await generateMessages({ card, fields, recipient: partner, profile: GEMINI_PROFILE, preferred: [] }, { fresh: true });
-        // 실제로 Gemini까지 간 호출만 센다 (키 없음·서버 함수 없음·브라우저 제한은 한도를 쓰지 않음)
-        if (out.source === "gemini" || ["rate_limit", "http", "blocked", "empty", "bad_json", "timeout", "shape"].includes(out.reason)) {
-          try {
-            sessionStorage.setItem(GEMINI_COUNT_KEY, String(geminiCalls() + 1));
-          } catch (error) {
-            // 저장 못 해도 넘어간다
-          }
-        }
-        showGeminiCount();
-        const run = { c, card, values, partner, profile: GEMINI_PROFILE, reasons: out.reasons };
-        const label = aiSourceLabel(out);
-        md.push(`## ${id} · ${card.name} · ${partner.label} — 생성: ${label}`, "");
-        out.variants.forEach((v) => {
-          const problems = checkMessage(run, v);
-          rows.push({ id, card: card.name, partner: partner.label, label, tab: TAB_LABEL[v.type], text: v.text, reasons: v.reasons || out.reasons, problems });
-          md.push(`### ${TAB_LABEL[v.type]}`, "", "```", v.text, "```", "");
-          md.push(`- 수정 이유: ${(v.reasons || out.reasons || []).join(" / ")}`);
-          md.push(`- 점검: ${problems.length ? problems.map((p) => `${p.item} ${p.detail}`).join(" / ") : "0건"}`, "");
-        });
+      for (const id of SHOWCASE_IDS) {
+        const s = SAMPLES.samples.find((x) => x.id === id);
+        const card = cards.cards.find((x) => x.id === s.cardId);
+        const fields = Object.fromEntries(card.fields.map((f) => [f.key, s.fields[f.key] || null]));
+        const out = await generateMessages({ card, fields, recipient: partnerByLabel[s.partner], profile: SHOWCASE_PROFILE, preferred: [] });
+        out.variants.forEach((v) => rows.push({ id, card: card.name, partner: s.partner, tab: TAB_LABEL[v.type], text: v.text, reasons: v.reasons }));
       }
-      const total = rows.reduce((a, r) => a + r.problems.length, 0);
-      md.splice(4, 0, `점검 문제 합계: ${total}건 · 메시지 ${rows.length}개`, "");
-      geminiReport = md.join("\n");
-      document.getElementById("gemini-table").innerHTML =
-        "<table><tr><th>사례</th><th>생성</th><th>탭</th><th>문장</th><th>수정 이유</th><th>점검</th></tr>" +
+      document.getElementById("showcase-table").innerHTML =
+        "<table><tr><th>샘플</th><th>탭</th><th>문장</th><th>수정 이유</th></tr>" +
         rows
-          .map(
-            (r) =>
-              `<tr><td>${r.id}<br><span class="muted">${escapeHtml(r.card)} · ${escapeHtml(r.partner)}</span></td><td>${escapeHtml(r.label)}</td><td>${r.tab}</td>` +
-              `<td>${escapeHtml(r.text)}</td><td>${escapeHtml((r.reasons || []).join("\n"))}</td>` +
-              `<td class="${r.problems.length ? "bad" : "ok"}">${r.problems.length ? escapeHtml(r.problems.map((p) => `${p.item} ${p.detail}`).join("\n")) : "0건"}</td></tr>`,
-          )
+          .map((r) => `<tr><td>${r.id}<br><span class="muted">${escapeHtml(r.card)} · ${escapeHtml(r.partner)}</span></td><td>${r.tab}</td><td>${escapeHtml(r.text)}</td><td>${escapeHtml(r.reasons.join("\n"))}</td></tr>`)
           .join("") +
         "</table>";
-      status.textContent = `완료 · 점검 문제 ${total}건 (메시지 ${rows.length}개)`;
-      document.getElementById("gemini-copy").disabled = false;
-      button.disabled = false;
-    });
-
-    document.getElementById("gemini-copy").addEventListener("click", async () => {
-      const status = document.getElementById("gemini-status");
-      try {
-        await navigator.clipboard.writeText(geminiReport);
-        status.textContent = "결과를 복사했어요. 대화창에 붙여 넣어 주세요.";
-      } catch (error) {
-        // 복사가 막히면 아래 칸에 넣어 직접 복사하게 한다
-        document.getElementById("markdown").value = geminiReport;
-        status.textContent = "자동 복사가 막혀서 위쪽 큰 칸에 넣었어요. 칸을 눌러 전체 선택(Ctrl+A) 후 복사해 주세요.";
-      }
-    });
+      window.QA_SHOWCASE = rows;
+    }
   </script>
 </body>
 </html>

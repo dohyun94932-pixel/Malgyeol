@@ -1,8 +1,8 @@
-// 말결 메시지 자동 점검 (가짜 AI 결과 품질 점검용 · 앱에는 포함되지 않음)
-// ai.js·content.js와 같은 페이지에서 돌기 때문에 이름이 겹치지 않게 점검 쪽 이름에는 QA·qa를 붙인다.
+// 말결 메시지 자동 점검 (문장 정리 엔진 결과 품질 점검용 · 앱에는 포함되지 않음)
+// engine.js·content.js와 같은 페이지에서 돌기 때문에 이름이 겹치지 않게 점검 쪽 이름에는 QA·qa를 붙인다.
 // 실행: scripts/qa.html을 로컬 서버로 열기 (README '메시지 자동 점검' 참고)
-//   이 PC에는 Node가 없어서 Node vm 대신 브라우저에서 ai.js·content.js를 그대로 불러와 돌린다.
-//   ai.js·content.js는 고치지 않고, 이 파일은 generateMessages()의 결과만 본다.
+//   이 PC에는 Node가 없어서 Node vm 대신 브라우저에서 engine.js·content.js를 그대로 불러와 돌린다.
+//   engine.js·content.js는 고치지 않고, 이 파일은 generateMessages()의 결과만 본다.
 //
 // 점검 패턴·문구 목록은 아래 [점검 기준] 구역에 모여 있다. 새 패턴은 배열에 한 줄씩 추가하면 된다.
 
@@ -21,7 +21,7 @@ const GRAMMAR_PATTERNS = [
   { re: / {2,}/, desc: "공백 두 칸 이상" },
   { re: /\.\./, desc: "마침표 두 개" },
   { re: /[?!]\./, desc: '물음표·느낌표 뒤에 마침표 (예: "?.")' },
-  // 10/06 추가: 실제로 나온 가짜 AI 오류 문장
+  // 10/06 추가: 실제로 나온 오류 문장
   { re: /[봄함음됨]\s?[을를] 해 봤/, desc: '메모체 끝 뒤에 "~을 해 봤습니다" 틀 (예: "요청해봄을 해 봤습니다")' },
   { re: /야\s?했(?:습니다|어요|어)/, desc: '"~해야함"이 과거형으로 바뀜 (예: "요청해줘야했습니다")' },
   { re: /(?:나요|까요|가요|니까)\s*(?:입니다|이에요|예요|부탁)/, desc: '질문 문장 뒤에 "입니다"·요청 틀 (예: "있나요입니다", "해야나요 부탁드려요")' },
@@ -29,14 +29,18 @@ const GRAMMAR_PATTERNS = [
   { re: /(?:는지|은지|한지|할지|인지|던지)(?:을|를|이|가)(?=[\s.,?!]|$)/, desc: '"~지"형 값 뒤에 조사 (예: "없는지를")' },
   { re: /[을를] 없는지/, desc: '"불이익을 없는지"처럼 조사가 틀림' },
   { re: /해(?:봤|봐요|봐|볼|주시|주세|주실|줘|드리|드려)/, desc: '보조 용언 띄어쓰기 (예: "해봤습니다" → "해 봤습니다")' },
+  { re: /[가-힣](?<![물알찾돌])[어아](?:봤|봐요|볼게)/, desc: '보조 용언 띄어쓰기 (예: "읽어봤어" → "읽어 봤어")' },
   { re: /(?:는|은|한|된|할|될)것(?:처럼|이|을|은|도|으로|만)/, desc: '"것" 띄어쓰기 (예: "미달하는것처럼" → "미달하는 것처럼")' },
+  { re: /완료[은는]\s?완료/, desc: '같은 말 반복 (예: "완료는 완료했습니다")' },
+  { re: /(?:좋겠어요|좋겠습니다|좋겠어|싶어요|싶습니다|해요|합니다)\s?(?:을|를) 부탁/, desc: '완성 문장 뒤에 "~를 부탁드립니다" (예: "좋겠어요를 부탁드립니다")' },
+  { re: /내로\s?까지|까지\s?까지|까지로(?:\s|$)/, desc: '기한 "까지" 중복 (예: "내로까지", "까지까지")' },
 ];
 
 // 1) B1: 앱이 덧붙이는 요청 문장 (사용자가 쓴 칸 값 밖에서 나오면 '추가한 요청'으로 본다)
 const REQUEST_PHRASES = ["확인 부탁", "시간 되실 때", "편하실 때", "답변 부탁", "확인해 주시면", "검토 부탁"];
 // 급한 기한 표현과 여유 있는 끝인사
 const QA_URGENT_RE = /오늘|지금|바로|급히|즉시|금일|내일 오전/;
-const RELAXED_PHRASES = ["시간 되실 때", "편하실 때", "여유 되실 때", "시간 될 때", "편할 때"];
+const RELAXED_PHRASES = ["시간 되실 때", "편하실 때", "여유 되실 때", "여유 있으실 때", "시간 될 때", "편할 때", "여유 있을 때"];
 
 // 3) B3: 칸이 비어 있을 때 수정 이유에 나오면 안 되는 단어 (칸 key → 단어)
 const B3_KEYWORDS = {
@@ -125,7 +129,7 @@ const EXTRA_CASES = [
   },
   {
     id: "REAL",
-    title: "실제 사례(10/06 Gemini 결과가 나빴던 입력 · '내 판단'은 복원한 값)",
+    title: "실제 사례(10/06 결과가 나빴던 입력 · '내 판단'은 복원한 값)",
     cardId: "question",
     partner: "선배",
     fields: {
@@ -134,6 +138,29 @@ const EXTRA_CASES = [
       blocker: "추출된 항목이 중요성 기준에 미달하는것처럼 보임",
       judgment: "무작위 추출 결과를 그대로 써도 될 것 같음",
       ask: "모르겠는데 정당한가요?",
+    },
+  },
+  // 10/06 추가: "좋겠어요를 부탁드립니다" · "내로까지"가 나왔던 입력 모양
+  {
+    id: "E4",
+    title: "오류 사례 · 부탁 한 장 · 완성 문장 요청 · '내로' 기한",
+    cardId: "request",
+    partner: "클라이언트",
+    fields: {
+      request: "감사에 필요한 자료를 보내주시면 좋겠어요",
+      deadline: "금요일 내로",
+      reason: "기말 감사 일정상 이번 주 안에 검토해야 함",
+    },
+  },
+  {
+    id: "E5",
+    title: "오류 사례 · 상황보고 · 기한 표현이 든 완료 예상",
+    cardId: "status",
+    partner: "선배",
+    fields: {
+      done: "매입 테스트 표본 추출 완료",
+      nextEta: "목요일 오전 중까지",
+      helpNeeded: "검토 일정을 잡아 주시면 좋겠어요",
     },
   },
 ];
@@ -231,7 +258,9 @@ function checkMessage(run, variant) {
     if (!firstLine.startsWith("인차지님")) add("R", "인차지인데 '인차지님'으로 시작하지 않음");
     const lead = QA_LEAD_FIELD[card.id] && values[QA_LEAD_FIELD[card.id]];
     const firstTwo = sentences.slice(0, 2).join(" ");
-    if (lead && !firstTwo.includes(core(lead, 6))) add("R", `인차지인데 결론(${QA_LEAD_FIELD[card.id]})이 앞 두 문장 안에 없음`);
+    // 존댓말 메시지에서는 '나를/내가'가 '저를/제가'로 바뀌므로 같은 말로 본다
+    const politeLead = lead && lead.replace(/^나(?=는|를|도|한테|에게)/, "저").replace(/^내가/, "제가");
+    if (lead && !hasCore(firstTwo, politeLead, 6)) add("R", `인차지인데 결론(${QA_LEAD_FIELD[card.id]})이 앞 두 문장 안에 없음`);
   }
   if (partner.id === "peer") {
     if (/님[,.]/.test(firstLine)) add("R", "동기인데 호칭(~님)으로 시작");
@@ -286,7 +315,10 @@ function checkMessage(run, variant) {
   return problems;
 }
 
-// 모든 사례를 돌려 { runs, results } 를 만든다. generate는 ai.js의 generateMessages.
+// 모든 사례를 돌려 { runs, results } 를 만든다. generate는 engine.js의 generateMessages.
+// [다시 만들기] 조합 번호: 처음(0)과 다시 만들기 두 번(1·2)
+const QA_VARIATIONS = [0, 1, 2];
+
 async function runAll(DATA, SAMPLES, generate) {
   const partnerByLabel = Object.fromEntries(DATA.partners.map((p) => [p.label, p]));
   const cases = [
@@ -305,16 +337,21 @@ async function runAll(DATA, SAMPLES, generate) {
     const card = DATA.cards.find((x) => x.id === c.cardId);
     const fields = Object.fromEntries(card.fields.map((f) => [f.key, c.fields[f.key] || null]));
     const values = Object.fromEntries(Object.entries(fields).filter(([, v]) => v && String(v).trim()));
-    const partner = partnerByLabel[c.partner];
-    const list = [...profiles];
-    // 피하고 싶은 표현 점검용 1회 (합니다체 · 매우 조심스럽게 — 앱 문장에 '죄송'이 들어가는 조건)
-    list.push({ sentenceLength: "normal", requestStyle: "careful", ending: "hamnida", avoidPhrases: AVOID_TEST, preferredExamples: [] });
-    list.forEach((profile) => jobs.push({ c, card, fields, values, partner, profile }));
+    // 받는 사람 4종 모두 (샘플에 적힌 받는 사람이 아니어도 같은 내용으로 돌려 본다)
+    DATA.partners.forEach((partner) => {
+      profiles.forEach((profile) => QA_VARIATIONS.forEach((variation) => jobs.push({ c, card, fields, values, partner, profile, variation })));
+    });
+    // 피하고 싶은 표현 점검용 1회 (샘플의 받는 사람 · 합니다체 · 매우 조심스럽게 — 앱 문장에 '죄송'이 들어가는 조건)
+    const avoidProfile = { sentenceLength: "normal", requestStyle: "careful", ending: "hamnida", avoidPhrases: AVOID_TEST, preferredExamples: [] };
+    jobs.push({ c, card, fields, values, partner: partnerByLabel[c.partner], profile: avoidProfile, variation: 0 });
   });
 
   const runs = await Promise.all(
     jobs.map(async (job) => {
-      const out = await generate({ card: job.card, fields: job.fields, recipient: job.partner, profile: job.profile, preferred: [] });
+      const out = await generate(
+        { card: job.card, fields: job.fields, recipient: job.partner, profile: job.profile, preferred: [] },
+        { variation: job.variation },
+      );
       return { ...job, variants: out.variants, reasons: out.reasons };
     }),
   );
@@ -325,7 +362,7 @@ async function runAll(DATA, SAMPLES, generate) {
     run.sameReasons = new Set(reasonSets).size === 1;
     run.variants.forEach((variant) => {
       checkMessage(run, variant).forEach((p) =>
-        results.push({ ...p, caseId: run.c.id, cardId: run.card.id, partner: run.partner.label, profile: run.profile, tab: variant.type, text: variant.text }),
+        results.push({ ...p, caseId: run.c.id, cardId: run.card.id, partner: run.partner.label, profile: run.profile, variation: run.variation, tab: variant.type, text: variant.text }),
       );
     });
   });
@@ -352,8 +389,8 @@ function toMarkdown(data, { title, date }) {
   const lines = [];
   lines.push(`# ${title}`, "");
   lines.push(`- 실행일: ${date}`);
-  lines.push(`- 방법: \`scripts/qa.html\`(브라우저)에서 \`ai.js\`의 generateMessages()를 그대로 실행 · 점검 기준은 \`scripts/check-messages.js\` 위쪽`);
-  lines.push(`- 대상: 사례 ${s.caseCount}개(샘플 30건 + T5·X1) × 말투 7조건(끝맺음 2 × 요청 방식 3 + 피하고 싶은 표현 1) = 생성 ${s.runs}회 × 탭 3종 = 메시지 ${s.messages}개`);
+  lines.push(`- 방법: \`scripts/qa.html\`(브라우저)에서 \`engine.js\`의 generateMessages()를 그대로 실행 · 점검 기준은 \`scripts/check-messages.js\` 위쪽`);
+  lines.push(`- 대상: 사례 ${s.caseCount}개(샘플 30건 + 추가 사례 ${s.caseCount - 30}개) × 받는 사람 4종 × 끝맺음 2종 × 요청 방식 3종 × [다시 만들기] 조합 3가지 (+ 사례마다 피하고 싶은 표현 1회) = 생성 ${s.runs}회 × 탭 3종 = 메시지 ${s.messages}개`);
   lines.push("", "## 항목별 요약", "", "| 항목 | 문제 수 | 문제 난 메시지 수 |", "|---|---:|---:|");
   s.rows.forEach((r) => lines.push(`| ${r.name} | ${r.count} | ${r.messages} |`));
   lines.push(`| **합계** | **${s.rows.reduce((a, r) => a + r.count, 0)}** | |`);
@@ -472,7 +509,7 @@ async function runToneCheck(DATA, SAMPLES, generate) {
 
 function toneMarkdown(tone, { title, date }) {
   const lines = [`# ${title}`, ""];
-  lines.push(`- 실행일: ${date} · \`scripts/qa.html\` (브라우저에서 ai.js 그대로 실행)`);
+  lines.push(`- 실행일: ${date} · \`scripts/qa.html\` (브라우저에서 engine.js 그대로 실행)`);
   lines.push(`- 대상: 샘플 30건 × 받는 사람 4종 × 끝맺음 2종 = 생성 ${tone.runs.length}회 × 탭 3종 = 메시지 ${tone.messages}개 (요청 방식 '부드럽게' · 문장 길이 '보통')`);
   lines.push('- 기준: 메시지 한 통 = 문체 하나 (클라이언트 합니다체 · 동기 반말 · 선배·인차지 = 끝맺음 설정). 합니다체 의문문은 "~ㄹ까요?" 허용', "");
   const byPartner = {};

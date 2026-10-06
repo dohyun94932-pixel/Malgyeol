@@ -1,58 +1,188 @@
-// AI 호출 (브라우저 쪽). structurize()·generateMessages()가 서버 함수(api/ · Gemini)를 부르고,
-// 실패하면(서버 오류·시간 초과·호출 한도 429·형식 오류·네트워크 끊김) 아래 가짜 AI(mock…) 결과로 자동 대체한다.
-// 주소에 ?mock 을 붙이면 항상 가짜 AI를 쓴다 (시연 비상용). 키는 서버에만 있고 이 파일에는 없다.
-//
-// 가짜 AI (목업): 대체용으로 남겨 둔다.
+// 말결 문장 정리 엔진 (규칙 기반 · 외부 AI API를 쓰지 않는다)
+// structurize()  : 한 줄 입력 → 카드의 칸 나누기 (샘플 데이터 30건과 비교 + 문장 연결어 규칙)
+// generateMessages(): 채운 칸 → 받는 사람·내 말투에 맞춘 메시지 3종 (문장 틀 + 끝맺음 변환 표)
 // 이 파일에는 로직만 둔다. 문장 틀은 content.js, 카드·칸·받는 사람·수정 이유 문구는 data/cards.json,
 // 샘플은 data/malgyeol_sample_data.json을 쓴다. (main.js가 불러 DATA · SAMPLE_DATA에 넣는다)
 // 입출력 형식은 코딩 레퍼런스 2장(8절 데이터·저장)과 기획안 10장 기준.
 
-const MOCK_DELAY_MS = 500;
+const ENGINE_DELAY_MS = 400; // 정리하는 느낌을 주는 짧은 대기 (계산은 바로 끝난다)
+const SAMPLE_SIMILARITY = 0.55; // 한 줄이 샘플과 이만큼 비슷하면 그 샘플을 쓴다 (0~1)
 
 // 띄어쓰기·문장부호를 뺀 비교용 문자열
 function normalizeLine(text) {
   return String(text || "").replace(/[\s.,!?~·]/g, "");
 }
 
-// 입력이 샘플의 한 줄(oneLine)과 같은지. 한쪽이 다른 쪽을 포함해도 같다고 본다.
-function findSample(card, input) {
-  const target = normalizeLine(input);
-  if (target.length < 6) return null;
-  const samples = (typeof SAMPLE_DATA !== "undefined" && SAMPLE_DATA && SAMPLE_DATA.samples) || [];
-  return (
-    samples.find((sample) => {
-      if (sample.cardId !== card.id) return false;
-      const line = normalizeLine(sample.oneLine);
-      return line === target || line.includes(target) || target.includes(line);
-    }) || null
-  );
+// 두 글자씩 묶은 조각이 얼마나 겹치는지 (0~1). 낱말 순서가 조금 달라도 비슷하면 높게 나온다.
+function similarity(a, b) {
+  const grams = (s) => {
+    const out = new Map();
+    for (let i = 0; i < s.length - 1; i += 1) {
+      const g = s.slice(i, i + 2);
+      out.set(g, (out.get(g) || 0) + 1);
+    }
+    return out;
+  };
+  const x = grams(normalizeLine(a));
+  const y = grams(normalizeLine(b));
+  let common = 0;
+  let total = 0;
+  x.forEach((n, g) => {
+    common += Math.min(n, y.get(g) || 0);
+    total += n;
+  });
+  y.forEach((n) => {
+    total += n;
+  });
+  return total ? (2 * common) / total : 0;
 }
 
-// 가짜 AI 호출 1 · 구조화
-// 입력: card(cards.json의 카드), input(한 줄)
-// 출력: { fields: {칸키: 값 또는 null}, followups: {칸키: 되묻는 질문} }
-// 한 줄에서 알 수 있는 칸만 채우고 나머지는 null로 둔다. 지어내지 않는다.
-async function mockStructurize(card, input) {
-  await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
+// 입력과 가장 비슷한 샘플(같은 카드). 같거나 한쪽이 다른 쪽을 포함하면 바로 그 샘플, 아니면 유사도가 기준 이상인 것 중 가장 높은 것.
+// exactOnly: 같은 샘플만 찾는다 (비슷한 샘플은 찾지 않는다)
+function findSample(card, input, exactOnly) {
+  const target = normalizeLine(input);
+  if (target.length < 6) return null;
+  const samples = ((typeof SAMPLE_DATA !== "undefined" && SAMPLE_DATA && SAMPLE_DATA.samples) || []).filter((s) => s.cardId === card.id);
+  const exact = samples.find((sample) => {
+    const line = normalizeLine(sample.oneLine);
+    return line === target || line.includes(target) || target.includes(line);
+  });
+  if (exact || exactOnly) return exact || null;
+  let best = null;
+  let bestScore = SAMPLE_SIMILARITY;
+  samples.forEach((sample) => {
+    const score = similarity(input, sample.oneLine);
+    if (score >= bestScore) {
+      best = sample;
+      bestScore = score;
+    }
+  });
+  return best;
+}
 
+// ---------- 한 줄을 연결어로 나눠 칸에 배치하기 (샘플·키워드와 맞지 않을 때) ----------
+
+// 말끝을 메모체로: 맞 → 맞음, 되 → 됨, 하 → 함 (받침 없으면 ㅁ 받침을 붙인다)
+function toMemo(stem) {
+  const s = stem.trim();
+  const last = s.slice(-1);
+  if (!isHangul(last)) return s;
+  return jongOf(last) === 0 ? s.slice(0, -1) + withJong(last, 16) : `${s}음`;
+}
+
+// 한 조각의 끝 연결어를 떼고 칸 값 모양(메모체·"~지"형)으로 바꾼다. 바꿀 수 없으면 null.
+//   "계산이 안 맞는데" → "계산이 안 맞음" · "검토 중인데" → "검토 중임" · "맞는지" → 그대로 ("~지"형)
+function clauseValue(part) {
+  const p = part.trim().replace(/[,.]$/, "");
+  let m;
+  if ((m = p.match(/^(.+?)(?:이)?(?:인데|이지만|이라서|이어서)$/)) && /(?:중|것|상황|상태|기준|문제|때문)$/.test(m[1])) return `${m[1]}임`;
+  if ((m = p.match(/^(.+[^는은])(?:는데|은데|지만)$/))) return toMemo(m[1]);
+  if ((m = p.match(/^(.+(?:했|됐|었|았|있|없|겠))(?:는데|지만|어서|어)$/))) return toMemo(m[1]);
+  if ((m = p.match(/^(.+)해서$/))) return `${m[1]}함`;
+  if ((m = p.match(/^(.+[나가])서$/))) return toMemo(m[1]); // 차이가 나서 → 차이가 남
+  if ((m = p.match(/^(.+)(?:아서|어서)$/)) && hasBatchim(m[1])) return toMemo(m[1]); // 안 맞아서 → 안 맞음
+  if ((m = p.match(/^(.+(?:했|났|었|았|됐))고$/))) return toMemo(m[1]); // 실사는 끝났고 → 실사는 끝났음
+  return p;
+}
+
+// 문장 연결어 자리에서 한 줄을 조각으로 나눈다. (연결어는 앞 조각에 남긴다)
+const CLAUSE_SPLIT_RE = /(?<=(?:는데|인데|은데|지만|해서|나서|라서|어서|아서|여서|와서|워서|빠서|파서|봐서|돼서|했고|났고|었고|았고|됐고|했어|었어|았어))\s+/;
+// 받는 사람에게 묻고 싶다는 말 자체("선배한테 물어보고 싶어요")는 칸 내용이 아니다
+const META_RE = /(?:선배|인차지|동기|담당자|클라이언트|팀장)(?:님)?(?:한테|에게|께).*(?:물어|여쭤|묻|부탁|말씀|보고)|^(?:물어|여쭤)보고 싶/;
+const ASK_RE = /\?$|(?:나요|까요|가요|ㄹ지|을지|는지|인지|은지)(?:\s*(?:궁금|모르|고민|확인).*)?$/;
+const BLOCK_RE = /안 ?맞|안 ?돼|안 ?됨|못 |모르|막혀|막힘|어렵|헷갈|애매|안 ?와|안 ?옴|없|부족|달라|다름|오류|차이/;
+const TRIED_RE = /해 ?봤|해 ?봄|확인했|시도|찾아봤|비교했|검토했|대사했|읽어 ?봤/;
+const JUDGE_RE = /것 같|같아|생각|보여|보임|맞는 듯/;
+const DONE_RE = /끝났|끝냄|완료|마쳤|정리했|했고|했음|끝$/;
+const DOING_RE = /중(?:이에요|입니다|이야|임)?$|진행 ?중|하고 있/;
+const HELP_RE = /부탁|도와|요청|확인해 ?주|봐 ?주|주실 수|줄 수/;
+// 기한 표현: "내일 오전까지", "금요일 18시까지", "이번 주 중으로", "오늘 중"
+const TIME_RE = /(?:오늘|내일|모레|이번 ?주|다음 ?주|금주|차주|[월화수목금토일]요일|\d+일|\d+시)(?:\s?(?:오전|오후|점심|저녁|\d+시|\d+분|[월화수목금토일]요일))*\s?(?:까지|중으로|중|내로|전까지)/;
+
+// 칸 하나에 조각을 넣는다 (이미 찬 칸은 건드리지 않는다)
+function put(fields, key, value) {
+  if (key in fields && !fields[key] && value) fields[key] = value;
+}
+
+function splitByRules(card, input) {
   const fields = {};
   card.fields.forEach((field) => {
     fields[field.key] = null;
   });
+  const parts = String(input)
+    .split(/[.!]\s+|\n/)
+    .flatMap((s) => s.split(CLAUSE_SPLIT_RE))
+    .map((s) => s.trim())
+    .filter((s) => s && !META_RE.test(s));
+  if (!parts.length) return fields;
 
-  const sample = findSample(card, input);
-  const preset = (MOCK_PRESETS[card.id] || []).find((p) => p.keywords.some((word) => input.includes(word)));
+  if (card.id === "question") {
+    parts.forEach((part, i) => {
+      const value = clauseValue(part);
+      const askPart = part.replace(/\s*(?:궁금해요|궁금합니다|모르겠어요|모르겠습니다|고민돼요|고민입니다|확인하고 싶어요|확인하고 싶습니다)$/, "").trim();
+      if (ASK_RE.test(askPart) && i === parts.length - 1) {
+        put(fields, "ask", askPart);
+      } else if (TRIED_RE.test(part)) put(fields, "tried", value);
+      else if (JUDGE_RE.test(part)) put(fields, "judgment", value);
+      else if (BLOCK_RE.test(part) && (fields.situation || i > 0)) put(fields, "blocker", value);
+      else if (!fields.situation) put(fields, "situation", value);
+      else put(fields, "blocker", value);
+    });
+  } else if (card.id === "request") {
+    const time = String(input).match(TIME_RE);
+    if (time) put(fields, "deadline", time[0].trim());
+    parts.forEach((part) => {
+      if (HELP_RE.test(part) || /싶어요|싶습니다|필요해요|필요합니다|될까요|되나요/.test(part)) {
+        // "금요일까지 원장을 보내주실 수 있나요" → 기한 칸에 넣은 말은 요청 내용에서 뺀다
+        const request = fields.deadline ? part.replace(fields.deadline, "").replace(/\s{2,}/g, " ").trim() : part;
+        put(fields, "request", request || part);
+      }
+      else if (/때문에/.test(part)) put(fields, "reason", part.slice(0, part.indexOf("때문에")).trim()); // "회의 때문에 바빠서" → "회의"
+      else if (/해서|어서|아서|인데|는데/.test(part) && clauseValue(part) !== part.trim()) put(fields, "reason", clauseValue(part)); // 메모체로 바꿀 수 있을 때만
+    });
+  } else if (card.id === "status") {
+    parts.forEach((part) => {
+      const value = clauseValue(part);
+      if (HELP_RE.test(part)) put(fields, "helpNeeded", part);
+      else if (DOING_RE.test(part)) put(fields, "inProgress", value);
+      else if (DONE_RE.test(part) || DONE_RE.test(value)) put(fields, "done", value);
+      else if (BLOCK_RE.test(part)) put(fields, "blocker", value);
+      else if (!fields.done) put(fields, "done", value);
+    });
+  }
+  return fields;
+}
 
-  if (sample) {
-    // 샘플과 같은 한 줄이면, 한 줄에서 보통 알 수 있는 칸만 샘플 값으로 채운다.
+// 호출 1 · 구조화
+// 입력: card(cards.json의 카드), input(한 줄)
+// 출력: { fields: {칸키: 값 또는 null}, followups: {칸키: 되묻는 질문} }
+// 한 줄에서 알 수 있는 칸만 채우고 나머지는 null로 둔다. 지어내지 않는다.
+// 순서: ① 샘플과 같으면 그 샘플 ② 시연용 키워드 응답(content.js STRUCTURE_PRESETS) ③ 샘플과 비슷하면 그 샘플 ④ 연결어 규칙
+// (샘플을 쓸 때는 한 줄로 알 수 있는 칸만 · content.js STRUCTURIZE_FILL)
+async function structurize(card, input) {
+  await new Promise((resolve) => setTimeout(resolve, ENGINE_DELAY_MS));
+
+  let fields = {};
+  card.fields.forEach((field) => {
+    fields[field.key] = null;
+  });
+
+  // ① 샘플과 같은 한 줄 → ② 시연용 키워드 응답 → ③ 샘플과 비슷한 한 줄 → ④ 연결어 규칙
+  const exact = findSample(card, input, true);
+  const preset = exact ? null : (STRUCTURE_PRESETS[card.id] || []).find((p) => p.keywords.some((word) => input.includes(word)));
+  const sample = exact || (preset ? null : findSample(card, input));
+
+  if (preset) {
+    Object.assign(fields, preset.fields);
+  } else if (sample) {
+    // 샘플과 비슷한 한 줄이면, 한 줄에서 보통 알 수 있는 칸만 샘플 값으로 채운다.
     (STRUCTURIZE_FILL[card.id] || []).forEach((key) => {
       if (sample.fields[key]) fields[key] = sample.fields[key];
     });
-  } else if (preset) {
-    Object.assign(fields, preset.fields);
   } else {
-    // 준비된 응답이 없으면 입력 전체를 첫 칸에만 넣는다.
-    fields[card.fields[0].key] = input;
+    fields = splitByRules(card, input);
+    // 아무 칸에도 못 넣었으면 입력 전체를 첫 칸에 둔다 (나머지는 되묻기)
+    if (!Object.values(fields).some(Boolean)) fields[card.fields[0].key] = String(input).trim();
   }
 
   // 비어 있는 필수 칸만 되묻는다. (코딩 레퍼런스 2장: 빈 필수 칸만 노란 강조)
@@ -441,11 +571,18 @@ function fitEvidence(evidence, text, form) {
 
 const pickForm = (template, form) => (Array.isArray(template) ? template[form] ?? template[template.length - 1] : template || "");
 
+// 후보 목록이면 조합 번호(variation)에 맞는 후보 하나를 고른다. 후보 목록 = [[합니다체, 해요체, 반말], [ … ], …]
+// [다시 만들기]를 누를 때마다 variation이 1씩 커져 인사·연결어·끝인사 조합이 바뀐다. 칸 값은 바꾸지 않는다.
+const isChoices = (entry) => Array.isArray(entry) && entry.length > 0 && Array.isArray(entry[0]);
+function choose(entry, variation) {
+  return isChoices(entry) ? entry[(variation || 0) % entry.length] : entry;
+}
+
 // 칸 하나를 문장으로. 완성 문장·질문은 그대로 두고(끝맺음은 마지막 단계에서 맞춘다), 나머지는 알맞은 문장 틀에 끼운다.
-function renderStep(step, raw, form) {
+function renderStep(step, raw, form, variation) {
   const shape = classifyValue(raw);
   // "특별히 막힌 점은 없습니다"처럼 '없음'을 말하는 값에는 "다만" 같은 연결어를 붙이지 않는다.
-  const connector = MEANS_NONE_RE.test(String(raw).trim()) ? "" : pickForm(step.connector, form);
+  const connector = MEANS_NONE_RE.test(String(raw).trim()) ? "" : pickForm(choose(step.connector, variation), form);
   if (shape === "sentence" || shape === "question") {
     const value = String(raw).trim();
     // 질문은 물음표로, 나머지는 마침표로 끝낸다 (질문 뒤에 "입니다"·요청 틀을 붙이지 않는다)
@@ -492,16 +629,18 @@ function toneFormFor(recipient, profile) {
   return ending === "banmal" ? 2 : ending === "haeyo" ? 1 : 0;
 }
 
-// ---------- 가짜 AI 호출 2 · 메시지 생성 ----------
+// ---------- 호출 2 · 메시지 생성 ----------
 
 // 입력: { card, fields, recipient, profile, preferred }
 //   recipient: cards.json partners 항목 { id, label, honorific }
 //   profile: { sentenceLength: short|normal|detailed, requestStyle: direct|soft|careful, ending: hamnida|haeyo, avoidPhrases }
 // 출력: { variants: [{ type: mine|concise|soft, text, evidence: {칸키: 근거 구절}, reasons: [...] }], reasons: [...] }
 //   맨 바깥 reasons는 '내 말투안'의 수정 이유와 같다. 탭마다 수정 이유가 다르다. (B3)
-// 확정된 칸의 내용은 빠뜨리거나 바꾸지 않는다. 바꾸는 것은 문장 끝맺음뿐이다.
-async function mockGenerateMessages({ card, fields, recipient, profile }) {
-  await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
+// options.variation: [다시 만들기] 조합 번호 (0 = 처음 만들 때 · 같은 입력·같은 번호면 항상 같은 문장)
+// 확정된 칸의 내용은 빠뜨리거나 바꾸지 않는다. 바꾸는 것은 문장 끝맺음과 앱이 붙이는 인사·연결어·끝인사뿐이다.
+async function generateMessages({ card, fields, recipient, profile }, options = {}) {
+  await new Promise((resolve) => setTimeout(resolve, ENGINE_DELAY_MS));
+  const variation = Math.max(0, Number(options.variation) || 0);
 
   const flow = MESSAGE_FLOW[card.id];
   const style = PARTNER_STYLE[recipient.id] || { greeting: "{h}," };
@@ -518,7 +657,7 @@ async function mockGenerateMessages({ card, fields, recipient, profile }) {
   const fixed = (...candidates) => {
     for (const candidate of candidates) {
       if (!candidate) continue;
-      const kept = splitSentences(pick(candidate)).filter((sentence) => {
+      const kept = splitSentences(pick(choose(candidate, variation))).filter((sentence) => {
         const hit = avoid.find((word) => sentence.includes(word));
         if (hit) removed.add(hit);
         return !hit;
@@ -548,14 +687,14 @@ async function mockGenerateMessages({ card, fields, recipient, profile }) {
   const evidence = {};
   const body = steps
     .map((step) => {
-      const r = renderStep(step, raw[step.key], form);
+      const r = renderStep(step, raw[step.key], form, variation);
       evidence[step.key] = r.evidence;
       return r.text;
     })
     .join(" ");
   let tail = null; // 질문 준비실은 '묻고 싶은 것'을 마지막 문장에 그대로 (B2)
   if (tailStep) {
-    const r = renderStep(tailStep, raw[tailStep.key], form);
+    const r = renderStep(tailStep, raw[tailStep.key], form, variation);
     evidence[tailStep.key] = r.evidence;
     tail = r.text;
   }
@@ -595,7 +734,9 @@ async function mockGenerateMessages({ card, fields, recipient, profile }) {
   ]);
 
   // 더 부드럽게: 배려하는 첫 문장 + 한 단계 더 부드러운 끝인사
-  const soft = join([line(greeting, fixed(flow.soft, opener)), body, extra, tail, closing(softer[requestStyle])]);
+  // 인차지(결론 먼저)에게는 첫 줄을 한 문장으로: 두 문장짜리 배려 인사는 결론을 뒤로 밀어낸다
+  const softOpener = style.leadFirst && isChoices(flow.soft) ? flow.soft.filter((c) => splitSentences(pick(c)).length === 1) : flow.soft;
+  const soft = join([line(greeting, fixed(softOpener.length ? softOpener : flow.soft, opener)), body, extra, tail, closing(softer[requestStyle])]);
 
   // 수정 이유: cards.json reasons에서 채워진 칸·탭·받는 사람에 맞는 문구만 골라 최대 3줄 (B3)
   const copy = typeof DATA !== "undefined" && DATA && DATA.reasons;
@@ -619,228 +760,4 @@ async function mockGenerateMessages({ card, fields, recipient, profile }) {
     { type: "soft", ...finish(soft, evidence), reasons: reasonsFor("soft", 2) },
   ];
   return { variants, reasons: variants[0].reasons };
-}
-
-// ---------- 실제 AI (Gemini · api/ 서버 함수) + 가짜 AI 대체 ----------
-// 입출력 형식은 가짜 AI와 같다. 결과에 어디서 만들었는지가 붙는다:
-//   source: "gemini"(방금 Gemini가 만듦) · "cache"(10분 안에 Gemini가 만든 결과를 다시 씀) · "mock"(가짜 AI)
-//   reason: source가 "mock"일 때 이유 — forced(?mock) · client_limit(브라우저 1분 10회) · timeout · network ·
-//           no_key · rate_limit · http · blocked · empty · bad_json · bad_request · shape(응답 모양 이상) ·
-//           not_found(서버 함수 없음 · 내 PC의 py -m http.server로 열 때) · server
-// 가짜 AI 결과는 저장하지 않는다. Gemini가 성공한 결과만 저장한다.
-
-const AI_TIMEOUT_MS = { structurize: 8000, generate: 15000 };
-const CLIENT_LIMIT = 10; // 한 브라우저 1분 10회 (넘으면 서버를 부르지 않고 가짜 AI)
-const CLIENT_WINDOW_MS = 60 * 1000;
-const AI_CACHE_TTL_MS = 10 * 60 * 1000; // 같은 입력은 10분 동안 저장해 둔 결과를 다시 쓴다 (무료 등급 호출 아끼기)
-
-function forceMock() {
-  try {
-    return new URLSearchParams(location.search).has("mock");
-  } catch (error) {
-    return false;
-  }
-}
-
-// 브라우저마다 다른 임의의 값 (서버의 간단한 호출 제한용 · 개인정보 아님)
-function aiClientId() {
-  try {
-    let id = localStorage.getItem("malgyeol.clientId");
-    if (!id) {
-      id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      localStorage.setItem("malgyeol.clientId", id);
-    }
-    return id;
-  } catch (error) {
-    return "anonymous";
-  }
-}
-
-function takeCallSlot() {
-  try {
-    const now = Date.now();
-    const recent = (JSON.parse(sessionStorage.getItem("malgyeol.aiCalls")) || []).filter((t) => now - t < CLIENT_WINDOW_MS);
-    if (recent.length >= CLIENT_LIMIT) return false;
-    recent.push(now);
-    sessionStorage.setItem("malgyeol.aiCalls", JSON.stringify(recent));
-    return true;
-  } catch (error) {
-    return true;
-  }
-}
-
-// 같은 입력인지 비교하려고 입력을 짧은 값으로 바꾼다 (저장 열쇠)
-function aiCacheKey(prefix, payload) {
-  const s = JSON.stringify(payload);
-  let h = 5381;
-  for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return `malgyeol.ai.${prefix}.${(h >>> 0).toString(36)}${s.length.toString(36)}`;
-}
-function aiCacheGet(key) {
-  try {
-    const item = JSON.parse(sessionStorage.getItem(key));
-    return item && Date.now() - item.at < AI_CACHE_TTL_MS ? item.value : null;
-  } catch (error) {
-    return null;
-  }
-}
-function aiCacheSet(key, value) {
-  try {
-    sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), value }));
-  } catch (error) {
-    // 저장 공간이 없으면 저장하지 않고 넘어간다
-  }
-}
-
-// 실패 이유를 담은 오류 (reason은 위 목록 중 하나 · status는 HTTP 상태 숫자)
-class AiCallError extends Error {
-  constructor(reason, status) {
-    super(reason);
-    this.reason = reason;
-    this.status = status || 0;
-  }
-}
-
-async function callServer(path, payload, timeoutMs) {
-  if (!takeCallSlot()) throw new AiCallError("client_limit");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs + 1500); // 서버 시간 제한보다 조금 길게
-  try {
-    let response;
-    try {
-      response = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Malgyeol-Client": aiClientId() },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      throw new AiCallError(error && error.name === "AbortError" ? "timeout" : "network");
-    }
-    if (!response.ok) {
-      // 서버가 알려 준 오류 종류를 읽는다 (429도 여기서 바로 가짜 AI로 · 다시 부르지 않음)
-      let body = null;
-      try {
-        body = await response.json();
-      } catch (error) {
-        body = null;
-      }
-      if (body && typeof body.error === "string") throw new AiCallError(body.error, body.status);
-      throw new AiCallError([404, 405, 501].includes(response.status) ? "not_found" : response.status === 429 ? "rate_limit" : "server", response.status);
-    }
-    try {
-      return await response.json();
-    } catch (error) {
-      throw new AiCallError("bad_json");
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// 결과 출처를 사람이 읽는 글로: "Gemini" · "Gemini (저장된 결과)" · "가짜 AI · no_key"
-function aiSourceLabel(result) {
-  if (!result || !result.source) return "";
-  if (result.source === "gemini") return "Gemini";
-  if (result.source === "cache") return "Gemini (저장된 결과)";
-  return `가짜 AI · ${result.reason || "server"}${result.status ? ` (${result.status})` : ""}`;
-}
-
-// 어디서 만들었는지 브라우저 콘솔에 남긴다 (입력·결과 내용은 남기지 않음)
-function logAiSource(step, result) {
-  try {
-    console.info(`[말결 AI] ${step}: ${aiSourceLabel(result)}`);
-  } catch (error) {
-    // 콘솔이 없어도 넘어간다
-  }
-  return result;
-}
-
-function mockReason(error) {
-  return { reason: (error && error.reason) || "server", status: (error && error.status) || 0 };
-}
-
-// 서버로 보낼 카드 정의 (cards.json의 카드 그대로 · 카드를 고쳐도 서버 코드는 그대로)
-function cardPayload(card) {
-  return {
-    id: card.id,
-    name: card.name,
-    fields: card.fields.map((f) => ({ key: f.key, label: f.label, required: Boolean(f.required), followUp: f.followUp || null })),
-  };
-}
-
-// 호출 1 · 구조화 — 입력: card(cards.json의 카드), input(한 줄) / 출력: { fields, followups, source, reason? }
-async function structurize(card, input) {
-  if (forceMock()) return logAiSource("구조화", { ...(await mockStructurize(card, input)), source: "mock", reason: "forced" });
-  const payload = { card: cardPayload(card), input: String(input).slice(0, 500) };
-  const key = aiCacheKey("s", payload);
-  const cached = aiCacheGet(key);
-  if (cached) return logAiSource("구조화", { ...cached, source: "cache" });
-  try {
-    const data = await callServer("/api/structurize", payload, AI_TIMEOUT_MS.structurize);
-    const fields = {};
-    const followups = {};
-    card.fields.forEach((f) => {
-      const v = data && data.fields ? data.fields[f.key] : null;
-      fields[f.key] = typeof v === "string" && v.trim() ? v.trim() : null;
-      if (f.required && !fields[f.key]) followups[f.key] = f.followUp;
-    });
-    const result = { fields, followups };
-    aiCacheSet(key, result); // Gemini가 성공한 결과만 저장
-    return logAiSource("구조화", { ...result, source: "gemini" });
-  } catch (error) {
-    return logAiSource("구조화", { ...(await mockStructurize(card, input)), source: "mock", ...mockReason(error) });
-  }
-}
-
-// 실제 AI 결과를 앱 형식으로 마무리: 문체 하나로 맞추고(안전망), 근거 구절을 바뀐 본문에 맞춘다.
-function finishAiResult(data, recipient, profile) {
-  const form = toneFormFor(recipient, profile);
-  const variants = ["mine", "concise", "soft"].map((type) => {
-    const v = ((data && data.variants) || []).find((item) => item && item.type === type);
-    if (!v || typeof v.text !== "string" || !v.text.trim()) throw new AiCallError("shape");
-    const text = unifyTone(v.text.trim(), form);
-    const evidence = {};
-    Object.entries(v.evidence || {}).forEach(([k, e]) => {
-      if (typeof e === "string" && e) evidence[k] = e;
-    });
-    const reasons = (Array.isArray(v.reasons) ? v.reasons : []).filter((r) => typeof r === "string" && r.trim()).slice(0, 3);
-    return { type, text, evidence: fitEvidence(evidence, text, form), reasons };
-  });
-  return { variants, reasons: variants[0].reasons };
-}
-
-// 호출 2 · 메시지 생성 — 입력: { card, fields, recipient, profile, preferred } / 출력: { variants, reasons, source, reason? }
-// options.fresh: true면 저장된 결과를 읽지 않고 새로 부른다 ([다시 만들기])
-async function generateMessages(args, options = {}) {
-  const { card, fields, recipient, profile, preferred } = args;
-  if (forceMock()) return logAiSource("메시지", { ...(await mockGenerateMessages(args)), source: "mock", reason: "forced" });
-  const filled = {};
-  card.fields.forEach((f) => {
-    const v = String(fields[f.key] || "").trim();
-    if (v) filled[f.key] = v.slice(0, 500);
-  });
-  const base = {
-    card: cardPayload(card),
-    fields: filled,
-    recipient: { id: recipient.id, label: recipient.label, honorific: recipient.honorific || "" },
-    profile: {
-      sentenceLength: profile.sentenceLength,
-      requestStyle: profile.requestStyle,
-      ending: profile.ending,
-      avoidPhrases: String(profile.avoidPhrases || "").slice(0, 200),
-    },
-  };
-  // 카드·칸·받는 사람·말투가 모두 같으면 저장해 둔 결과를 다시 쓴다 ([다시 만들기]는 제외)
-  const key = aiCacheKey("g", base);
-  const cached = options.fresh ? null : aiCacheGet(key);
-  if (cached) return logAiSource("메시지", { ...cached, source: "cache" });
-  try {
-    const data = await callServer("/api/generate", { ...base, preferred: (preferred || []).slice(0, 5) }, AI_TIMEOUT_MS.generate);
-    const result = finishAiResult(data, recipient, profile);
-    aiCacheSet(key, result); // Gemini가 성공한 결과만 저장 (가짜 AI 결과는 저장하지 않음)
-    return logAiSource("메시지", { ...result, source: "gemini" });
-  } catch (error) {
-    return logAiSource("메시지", { ...(await mockGenerateMessages(args)), source: "mock", ...mockReason(error) });
-  }
 }

@@ -1,10 +1,10 @@
 // 화면 문구·카드·칸·받는 사람·말투 옵션은 data/cards.json에서 읽는다. (콘텐츠팀 기준 · 문구는 cards.json에서 고친다)
-// 샘플 30건(data/malgyeol_sample_data.json)은 가짜 AI 구조화(ai.js)가 참고한다.
+// 샘플 30건(data/malgyeol_sample_data.json)은 문장 정리 엔진의 구조화(engine.js)가 참고한다.
 const DATA_URL = "data/cards.json";
 const SAMPLE_URL = "data/malgyeol_sample_data.json";
 
 let DATA = null; // cards.json
-let SAMPLE_DATA = null; // 샘플 데이터 (ai.js가 읽는다)
+let SAMPLE_DATA = null; // 샘플 데이터 (engine.js가 읽는다)
 
 // 말투 저장 형식: 코딩 레퍼런스 2장 8절
 // malgyeol.profile = { sentenceLength, requestStyle, ending, avoidPhrases, preferredExamples, onboarded }
@@ -16,6 +16,7 @@ const MAX_PREFERRED = 5;
 
 // 화면 사이에 넘겨줄 상태
 const state = {
+  variation: 0, // [다시 만들기] 조합 번호
   cardId: null,
   input: "",
   recipient: null, // 받는 사람 id (cards.json partners)
@@ -320,8 +321,9 @@ function updateMakeButton() {
   $("make-message").disabled = !(state.recipient && allFilled);
 }
 
-// 호출 2(메시지 생성)를 부르고 결과 상태를 채운다. fresh: 저장된 결과를 쓰지 않고 새로 만든다 ([다시 만들기])
-async function buildResult(fresh = false) {
+// 호출 2(메시지 생성)를 부르고 결과 상태를 채운다.
+// variation: [다시 만들기] 조합 번호. 처음 만들 때 0, 다시 만들 때마다 1씩 커져 인사·연결어·끝인사가 바뀐다.
+async function buildResult(variation = 0) {
   const profile = loadProfile();
   const result = await generateMessages(
     {
@@ -331,17 +333,12 @@ async function buildResult(fresh = false) {
       profile,
       preferred: profile.preferredExamples,
     },
-    { fresh },
+    { variation },
   );
+  state.variation = variation;
   state.variants = result.variants;
   state.reasons = result.reasons;
   state.activeVariant = 0;
-  // 실제 AI가 실패해서 가짜 AI로 대체됐을 때만 결과 화면에 안내 한 줄 (?mock으로 일부러 쓸 때는 안 보임)
-  $("ai-fallback-notice").hidden = !(result.source === "mock" && result.reason !== "forced");
-  // ?review일 때만 어디서 만들었는지 작은 글씨로 (예: "생성: Gemini", "생성: 가짜 AI · no_key")
-  const sourceLine = $("ai-source");
-  sourceLine.hidden = !new URLSearchParams(location.search).has("review");
-  sourceLine.textContent = `생성: ${aiSourceLabel(result)}`;
   renderResult();
 }
 
@@ -453,15 +450,29 @@ function showToast(message, targetId = "result-toast") {
   toastTimer = setTimeout(clearAll, 2500);
 }
 
+// B5: 복사하면 [복사] 버튼이 2초간 "✓ 복사됐어요"로 바뀌었다가 돌아온다.
+let copyTimer = null;
+function showCopied() {
+  const button = $("copy-message");
+  button.textContent = getPath("uiCopy.buttons.copied") || UI_TEXT.copied;
+  button.classList.add("done");
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => {
+    button.textContent = getPath("uiCopy.buttons.copy");
+    button.classList.remove("done");
+  }, 2000);
+}
+
 async function copyMessage() {
   const textarea = $("message-text");
   try {
     await navigator.clipboard.writeText(textarea.value);
-    showToast(UI_TEXT.copied);
+    showCopied();
   } catch (error) {
     textarea.select();
     const copied = document.execCommand("copy");
-    showToast(copied ? UI_TEXT.copied : UI_TEXT.copyFailed);
+    if (copied) showCopied();
+    else showToast(UI_TEXT.copyFailed);
   }
 }
 
@@ -472,7 +483,7 @@ async function regenerate() {
   button.textContent = UI_TEXT.loadingMessage;
 
   try {
-    await buildResult(true); // 다시 만들기는 항상 새로 부른다 (저장된 결과 안 씀)
+    await buildResult((state.variation || 0) + 1); // 같은 내용, 다른 인사·연결어·끝인사 조합
     showToast(UI_TEXT.regenerated);
   } catch (error) {
     showToast(UI_TEXT.errorRegenerate);
@@ -669,7 +680,7 @@ function initBanner() {
 
 function validateData() {
   const dataProblems = []; // cards.json · 샘플 데이터 문제
-  const contentProblems = []; // content.js(가짜 AI 문장 틀) 문제
+  const contentProblems = []; // content.js(엔진 문장 틀) 문제
 
   const cardIds = DATA.cards.map((c) => c.id);
   if (new Set(cardIds).size !== cardIds.length) dataProblems.push("cards: 카드 id가 겹쳐요.");
@@ -702,9 +713,9 @@ function validateData() {
     }
     if (LEAD_FIELD[card.id] && !keys.includes(LEAD_FIELD[card.id])) contentProblems.push(`LEAD_FIELD(${card.id}): "${LEAD_FIELD[card.id]}" 칸이 cards.json에 없어요.`);
     if (CLOSING_FIELD[card.id] && !keys.includes(CLOSING_FIELD[card.id])) contentProblems.push(`CLOSING_FIELD(${card.id}): "${CLOSING_FIELD[card.id]}" 칸이 cards.json에 없어요.`);
-    (MOCK_PRESETS[card.id] || []).forEach((preset) => {
+    (STRUCTURE_PRESETS[card.id] || []).forEach((preset) => {
       Object.keys(preset.fields).forEach((key) => {
-        if (!keys.includes(key)) contentProblems.push(`MOCK_PRESETS(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
+        if (!keys.includes(key)) contentProblems.push(`STRUCTURE_PRESETS(${card.id}): "${key}" 칸이 cards.json에 없어요.`);
       });
     });
     (STRUCTURIZE_FILL[card.id] || []).forEach((key) => {
@@ -735,7 +746,7 @@ function validateData() {
     if (!PARTNER_STYLE[partner.id]) contentProblems.push(`PARTNER_STYLE에 받는 사람 "${partner.id}"가 없어요.`);
   });
 
-  // 가짜 AI가 만드는 표현 종류(mine · concise · soft)와 탭이 맞는지
+  // 엔진이 만드는 표현 종류(mine · concise · soft)와 탭이 맞는지
   ["mine", "concise", "soft"].forEach((id) => {
     if (!DATA.versions.some((v) => v.id === id)) dataProblems.push(`versions에 "${id}" 탭이 없어요.`);
   });
@@ -800,7 +811,7 @@ async function loadData() {
   if (!response.ok) throw new Error(`${DATA_URL} ${response.status}`);
   DATA = await response.json();
 
-  // 샘플은 없어도 앱은 동작한다 (가짜 AI가 키워드 응답만 쓴다)
+  // 샘플은 없어도 앱은 동작한다 (엔진이 키워드 응답·연결어 규칙만 쓴다)
   try {
     const sampleResponse = await fetch(SAMPLE_URL, { cache: "no-cache" });
     if (sampleResponse.ok) SAMPLE_DATA = await sampleResponse.json();

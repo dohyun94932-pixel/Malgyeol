@@ -7,7 +7,7 @@
     "owner": "콘텐츠·데이터팀 최준성",
     "rules": [
       "required=true 칸이 모두 채워져야 [메시지 만들기]가 활성화된다.",
-      "AI가 채우지 못한 required 칸은 노란 강조 + followUp 문구를 보여 준다.",
+      "한 줄에서 찾지 못한 required 칸은 노란 강조 + followUp 문구를 보여 준다.",
       "비어 있는 칸의 내용은 메시지에 추가하지 않는다.",
       "샘플·placeholder에 실제 사내 데이터·고객·개인정보는 쓰지 않는다('A사','X원' 마스킹)."
     ]
@@ -339,8 +339,6 @@
     "homeTitle": "어떤 말을 전하고 싶나요?",
     "oneLineLabel": "한 줄로 적어 주세요",
     "confidentialNotice": "클라이언트명·금액 등 기밀 정보는 'A사', 'X원'처럼 바꿔 입력하세요.",
-    "aiDataNotice": "입력 내용은 AI 서비스로 전송돼요. 실제 회사명·금액·이름은 넣지 마세요.",
-    "aiFallbackNotice": "지금은 AI 대신 연습용 예시 문장으로 보여 드려요. 잠시 후 다시 만들어 보세요.",
     "structureTitle": "구조화 확인",
     "partnerLabel": "받는 사람",
     "fieldsLabel": "내용 확인",
@@ -360,6 +358,7 @@
       "home": "← 홈으로",
       "makeMessage": "메시지 만들기",
       "copy": "복사",
+      "copied": "✓ 복사됐어요",
       "regenerate": "다시 만들기",
       "applyToMyTone": "이 표현을 내 말투에 반영",
       "editStructure": "구조 수정",
